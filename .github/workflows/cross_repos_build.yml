@@ -5,9 +5,8 @@ on:
 
 jobs:
   build_and_test:
-    if: ${{ github.event.issue.pull_request && contains(github.event.comment.body, 'build_prs') }}
-    needs: parse_comment
     runs-on: ubuntu-latest
+    if: ${{ github.event.issue.pull_request && contains(github.event.comment.body, 'build_prs') }}
     steps:
       - name: Prepare directories
         run: |
