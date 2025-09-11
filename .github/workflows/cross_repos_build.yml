@@ -1,4 +1,5 @@
 name: Trigger build cross multiple repositories in BlueOS project
+
 on:
   issue_comment:
     types: [created]
