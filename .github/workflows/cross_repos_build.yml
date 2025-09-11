@@ -19,7 +19,8 @@ jobs:
 
       - name: Download patches
         uses: actions/github-script@v8
-        script: |
+        with:
+          script: |
             const body = context.payload.comment.body;
             const prRegex = /https:\/\/github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/g;
             let match;
