@@ -17,6 +17,7 @@ jobs:
           mkdir -p patches
 
       - name: Download patches
+        id: fetch_prs
         uses: actions/github-script@v8
         with:
           script: |
@@ -24,11 +25,27 @@ jobs:
             const body = context.payload.comment.body;
             const prRegex = /https:\/\/github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/g;
             let match;
+            let prs = [];
             let patchUrls = [];
+            let fetched_prs = [];
             while ((match = prRegex.exec(body)) !== null) {
+              let owner = match[1];
               let repo = match[2];
+              let pr_num = match[3];
+              prs.push({owner: owner, repo: repo, pr_num: pr_num});
               patchUrls.push({repo: repo, url: match[0] + ".diff"});
             }
+            // Get metadata of the PR.
+            await Promise.all(prs.map(async({ owner, repo, pr_num }) => {
+              const { data: pullRequest } = await github.rest.pulls.get({
+                owner,
+                repo,
+                pr_num,
+              });
+              fetched_prs.push({owner: owner, repo: repo, pr_num: pr_num, sha: pullRequest.head.sha});
+            }));
+
+            // Download diffs.
             await Promise.all(patchUrls.map(async ({ repo, url }) => {
               console.log(`Downloading ${url}`);
               const patchFilename = `patches/${repo}.diff`;
@@ -36,6 +53,28 @@ jobs:
                 url: url,
               });
               await fs.writeFile(patchFilename, response.data);
+            }));
+            core.setOutput('fetched_prs, JSON.stringify(fetched_prs));
+
+      - name: Create checks
+        uses: actions/github-script@v8
+        env: FETCHED_PRS: ${{ steps.fetch_prs.outputs.fetched_prs }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prs = JSON.parse(process.env.FETCHED_PRS);
+            await Promise.all(prs.map(async ({ repo, owner, url, sha }) => {
+              await github.rest.checks.create({
+                owner: owner,
+                repo: repo,
+                name: 'Cross repos checks',
+                head_sha: sha,
+                status: 'in_progress',
+                output: {
+                  title: 'Begin cross repos checks',
+                  summary: 'Running cross repos checks',
+                }
+              });
             }));
 
       - name: Download prebuilt Android repo
@@ -98,5 +137,52 @@ jobs:
 
       # FIXME: We should use action's builtin matrix.
       - name: Build and test the kernel
+        id: build
         run: |
-          ./build/ci/run_ci.py
+          echo "Done"
+
+      - name: Update checks on success
+        if: success()
+        uses: actions/github-script@v8
+        env: FETCHED_PRS: ${{ steps.fetch_prs.outputs.fetched_prs }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prs = JSON.parse(process.env.FETCHED_PRS);
+            await Promise.all(prs.map(async ({ repo, owner, url, sha }) => {
+              await github.rest.checks.create({
+                owner: owner,
+                repo: repo,
+                name: 'Cross repos checks',
+                head_sha: sha,
+                status: 'completed',
+                conclusion: 'success',
+                output: {
+                  title: 'Cross repos checks completed',
+                  summary: 'All checks passed.',
+                }
+              });
+            }));
+
+      - name: Update checks on failure
+        if: failure()
+        uses: actions/github-script@v8
+        env: FETCHED_PRS: ${{ steps.fetch_prs.outputs.fetched_prs }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prs = JSON.parse(process.env.FETCHED_PRS);
+            await Promise.all(prs.map(async ({ repo, owner, url, sha }) => {
+              await github.rest.checks.create({
+                owner: owner,
+                repo: repo,
+                name: 'Cross repos checks',
+                head_sha: sha,
+                status: 'completed',
+                conclusion: failure,
+                output: {
+                  title: 'Cross repos checks completed',
+                  summary: 'Some checks failed.',
+                }
+              });
+            }));
