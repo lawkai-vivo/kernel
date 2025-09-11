@@ -1,0 +1,15 @@
+name: Check comment
+
+on: issue_comment
+
+jobs:
+  check_comment_type:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if comment is on a Pull Request
+        if: github.event.issue.pull_request
+        run: echo "This comment is on a Pull Request!"
+
+      - name: Check if comment is on a standard Issue
+        if: github.event.issue.pull_request == null
+        run: echo "This comment is on a standard Issue!"
