@@ -61,14 +61,9 @@ jobs:
         env:
           FETCHED_PRS: ${{ steps.fetch_prs.outputs.fetched_prs }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const prs = JSON.parse(process.env.FETCHED_PRS);
             await Promise.all(prs.map(async ({ repo, owner, url, sha }) => {
-              // FIXME: Currently we're unable to create cross repo checks.
-              if (context.repo.repo != repo) {
-                return;
-              }
               await github.rest.checks.create({
                 owner: owner,
                 repo: repo,
@@ -152,13 +147,9 @@ jobs:
         env:
           FETCHED_PRS: ${{ steps.fetch_prs.outputs.fetched_prs }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const prs = JSON.parse(process.env.FETCHED_PRS);
             await Promise.all(prs.map(async ({ repo, owner, url, sha }) => {
-              if (context.repo.repo != repo) {
-                return;
-              }
               await github.rest.checks.create({
                 owner: owner,
                 repo: repo,
@@ -179,13 +170,9 @@ jobs:
         env:
           FETCHED_PRS: ${{ steps.fetch_prs.outputs.fetched_prs }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const prs = JSON.parse(process.env.FETCHED_PRS);
             await Promise.all(prs.map(async ({ repo, owner, url, sha }) => {
-              if (context.repo.repo != repo) {
-                return;
-              }
               await github.rest.checks.create({
                 owner: owner,
                 repo: repo,
