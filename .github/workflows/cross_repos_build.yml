@@ -60,6 +60,9 @@ jobs:
             git apply -3 --check --verbose ${patch_abspath} && git apply -3 --verbose ${patch_abspath}
             popd
           done
+          if [[ $? != 0 ]]; then
+            exit 1
+          fi
 
       - name: Re-sync repos
         # In case manifests repo is changed.
