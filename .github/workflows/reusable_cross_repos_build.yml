@@ -40,7 +40,7 @@ jobs:
               const { data: pullRequest } = await github.rest.pulls.get({
                 owner,
                 repo,
-                pr_num,
+                pull_number: pr_num,
               });
               fetched_prs.push({owner: owner, repo: repo, pr_num: pr_num, sha: pullRequest.head.sha});
             }));
