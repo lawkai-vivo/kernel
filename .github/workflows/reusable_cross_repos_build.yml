@@ -54,7 +54,7 @@ jobs:
               });
               await fs.writeFile(patchFilename, response.data);
             }));
-            core.setOutput('fetched_prs, JSON.stringify(fetched_prs));
+            core.setOutput('fetched_prs', JSON.stringify(fetched_prs));
 
       - name: Create checks
         uses: actions/github-script@v8
