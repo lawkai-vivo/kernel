@@ -182,7 +182,7 @@ jobs:
                 name: 'Cross repos checks',
                 head_sha: sha,
                 status: 'completed',
-                conclusion: failure,
+                conclusion: 'failure',
                 output: {
                   title: 'Cross repos checks completed',
                   summary: 'Some checks failed.',
