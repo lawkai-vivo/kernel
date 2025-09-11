@@ -1,15 +1,24 @@
-name: Check comment
-
 on: issue_comment
 
 jobs:
-  check_comment_type:
+  pr_commented:
+    # This job only runs for pull request comments
+    name: PR comment
+    if: ${{ github.event.issue.pull_request }}
     runs-on: ubuntu-latest
     steps:
-      - name: Check if comment is on a Pull Request
-        if: github.event.issue.pull_request
-        run: echo "This comment is on a Pull Request!"
+      - run: |
+          echo A comment on PR $NUMBER
+        env:
+          NUMBER: ${{ github.event.issue.number }}
 
-      - name: Check if comment is on a standard Issue
-        if: github.event.issue.pull_request == null
-        run: echo "This comment is on a standard Issue!"
+  issue_commented:
+    # This job only runs for issue comments
+    name: Issue comment
+    if: ${{ !github.event.issue.pull_request }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo A comment on issue $NUMBER
+        env:
+          NUMBER: ${{ github.event.issue.number }}
