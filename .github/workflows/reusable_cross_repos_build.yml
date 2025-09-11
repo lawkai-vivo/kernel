@@ -58,7 +58,8 @@ jobs:
 
       - name: Create checks
         uses: actions/github-script@v8
-        env: FETCHED_PRS: ${{ steps.fetch_prs.outputs.fetched_prs }}
+        env:
+          FETCHED_PRS: ${{ steps.fetch_prs.outputs.fetched_prs }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -144,7 +145,8 @@ jobs:
       - name: Update checks on success
         if: success()
         uses: actions/github-script@v8
-        env: FETCHED_PRS: ${{ steps.fetch_prs.outputs.fetched_prs }}
+        env:
+          FETCHED_PRS: ${{ steps.fetch_prs.outputs.fetched_prs }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -167,7 +169,8 @@ jobs:
       - name: Update checks on failure
         if: failure()
         uses: actions/github-script@v8
-        env: FETCHED_PRS: ${{ steps.fetch_prs.outputs.fetched_prs }}
+        env:
+          FETCHED_PRS: ${{ steps.fetch_prs.outputs.fetched_prs }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
