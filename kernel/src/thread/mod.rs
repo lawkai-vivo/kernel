@@ -29,7 +29,10 @@ use crate::{
     },
 };
 use alloc::boxed::Box;
-use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+use core::{
+    alloc::Layout,
+    sync::atomic::{AtomicI32, AtomicUsize, Ordering},
+};
 
 mod builder;
 mod posix;

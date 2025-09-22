@@ -23,8 +23,8 @@ use crate::{
     sync::{SpinLock, SpinLockGuard},
     thread,
     thread::{
-        AlignedStackStorage, Entry, GlobalQueueListHead, OffsetOfGlobal, Stack, Thread, ThreadKind,
-        ThreadNode, ThreadPriority,
+        Entry, GlobalQueueListHead, OffsetOfGlobal, Stack, Thread, ThreadKind, ThreadNode,
+        ThreadPriority,
     },
     types::{
         Arc, ArcInner, ArcList, ArcListIterator, AtomicIlistHead as ListHead, StaticListOwner, Uint,
@@ -172,14 +172,14 @@ pub(crate) fn build_static_thread(
     t: &'static mut MaybeUninit<ThreadNode>,
     // It must be 'static, since the ThreadNode returned doesn't
     // carry lifetime relationship to the SystemThreadStorage.
-    s: &'static SystemThreadStorage,
+    s: &'static mut SystemThreadStorage,
     p: ThreadPriority,
     init_state: Uint,
     entry: Entry,
     kind: ThreadKind,
 ) -> ThreadNode {
     let inner = &s.arc;
-    let stack = &s.stack;
+    let stack = &mut s.stack;
     let arc = unsafe { ThreadNode::const_new(inner) };
     assert_eq!(ThreadNode::strong_count(&arc), 1);
     let _id = Thread::id(&arc);

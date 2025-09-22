@@ -19,6 +19,7 @@ use crate::{
     types::{Arc, ArcList, AtomicUint, IntrusiveAdapter, Uint},
 };
 use core::{
+    alloc::Layout,
     mem::MaybeUninit,
     ptr::NonNull,
     sync::atomic::{compiler_fence, AtomicUsize, Ordering},
