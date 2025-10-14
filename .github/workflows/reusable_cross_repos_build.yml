@@ -13,16 +13,6 @@ jobs:
 
     if: ${{ github.event.issue.pull_request && contains(github.event.comment.body, 'build_prs') }}
     steps:
-      - uses: LouisBrunner/checks-action@v2.0.0
-        if: always()
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          name: Run cross repo checks
-          conclusion: ${{ job.status }}
-          sha: ${{ github.event.issue.pull_request.head.sha }}
-          output: |
-            {"summary":"${{ job.status }}"}
-
       - name: Prepare directories
         run: |
           # sysroot/ contains toolchain.
@@ -137,3 +127,13 @@ jobs:
 #      - name: Build and test the kernel
 #        run: |
 #          ./build/ci/run_ci.py
+      - uses: LouisBrunner/checks-action@v2.0.0
+        if: always()
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: Run cross repo checks
+          conclusion: ${{ job.status }}
+          sha: ${{ github.event.issue.pull_request.head.sha }}
+          output: |
+            {"summary":"${{ job.status }}"}
+
