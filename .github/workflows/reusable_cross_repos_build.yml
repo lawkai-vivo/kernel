@@ -136,4 +136,3 @@ jobs:
           sha: ${{ github.event.issue.pull_request.head.sha }}
           output: |
             {"summary":"${{ job.status }}"}
-
