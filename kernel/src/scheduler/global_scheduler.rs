@@ -69,15 +69,24 @@ impl ReadyTable {
 }
 
 #[inline]
-fn inner_next_thread(mut tbl: SpinLockGuard<'_, ReadyTable>, index: usize) -> Option<ThreadNode> {
+fn inner_next_thread(
+    mut tbl: SpinLockGuard<'_, ReadyTable>,
+    index: usize,
+    hint: Option<&ThreadNode>,
+) -> Option<ThreadNode> {
     let q = &mut tbl.tables[index];
-    let next = q.pop_front();
-    assert!(next.is_some());
+    let t = if let Some(h) = hint {
+        q.remove_if(|t| Thread::id(t) == Thread::id(h))
+    } else {
+        let next = q.pop_front();
+        assert!(next.is_some());
+        assert!(unsafe { next.as_ref().unwrap_unchecked().validate_saved_sp() });
+        next
+    };
     if q.is_empty() {
         tbl.clear_active_queue(index as u32);
     }
-    assert!(next.as_ref().unwrap().validate_saved_sp());
-    next
+    t
 }
 
 pub fn next_preferred_thread(prio: ThreadPriority) -> Option<ThreadNode> {
@@ -86,7 +95,7 @@ pub fn next_preferred_thread(prio: ThreadPriority) -> Option<ThreadNode> {
     if highest_active > prio as u32 {
         return None;
     }
-    inner_next_thread(tbl, highest_active as usize)
+    inner_next_thread(tbl, highest_active as usize, None)
 }
 
 pub fn next_ready_thread() -> Option<ThreadNode> {
@@ -101,7 +110,7 @@ pub fn next_ready_thread() -> Option<ThreadNode> {
     if highest_active > MAX_THREAD_PRIORITY as u32 {
         return None;
     }
-    inner_next_thread(tbl, highest_active as usize)
+    inner_next_thread(tbl, highest_active as usize, None)
 }
 
 pub fn queue_ready_thread_with_post_action<R, F>(
@@ -171,4 +180,12 @@ pub fn remove_from_ready_queue(t: &ThreadNode) -> bool {
         tbl.clear_active_queue(priority as u32);
     }
     true
+}
+
+pub fn next_ready_thread_with_hint(hint: &ThreadNode) -> Option<ThreadNode> {
+    let mut tbl = unsafe { READY_TABLE.assume_init_ref().irqsave_lock() };
+    let Some(t) = inner_next_thread(tbl, hint.priority() as usize, Some(hint)) else {
+        return next_ready_thread();
+    };
+    Some(t)
 }

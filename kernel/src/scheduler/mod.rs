@@ -352,6 +352,31 @@ pub fn yield_me() {
     yield_unconditionally();
 }
 
+pub fn yield_me_with_hint(hint: &ThreadNode) {
+    let pg = thread::Thread::try_preempt_me();
+    if !pg.preemptable() {
+        arch::idle();
+        return;
+    }
+    drop(pg);
+    yield_with_hint_unconditionally(hint);
+}
+
+fn yield_with_hint_unconditionally(hint: &ThreadNode) {
+    assert!(arch::local_irq_enabled());
+    let Some(next) = next_ready_thread_with_hint(&hint) else {
+        arch::idle();
+        return;
+    };
+    let to_sp = next.saved_sp();
+    let old = current_thread();
+    let from_sp_ptr = old.saved_sp_ptr();
+    let mut hook_holder = ContextSwitchHookHolder::new(next);
+    hook_holder.set_ready_thread(old);
+    arch::switch_context_with_hook(from_sp_ptr as *mut u8, to_sp, &mut hook_holder as *mut _);
+    debug_assert!(arch::local_irq_enabled());
+}
+
 fn yield_unconditionally() {
     assert!(arch::local_irq_enabled());
     let Some(next) = next_ready_thread() else {

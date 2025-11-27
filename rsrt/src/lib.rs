@@ -39,7 +39,7 @@ static GLOBAL: PosixAllocator = PosixAllocator;
 #[cfg(not(feature = "std"))]
 #[panic_handler]
 fn oops(info: &core::panic::PanicInfo) -> ! {
-    #[cfg(test)]
+    //#[cfg(test)]
     {
         semihosting::println!("{}", info);
         semihosting::println!("{}", info.message());
