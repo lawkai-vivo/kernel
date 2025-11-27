@@ -16,7 +16,7 @@
 
 use blueos::{
     scheduler, thread,
-    thread::{Entry, Thread, ThreadNode, CREATED, READY, SUSPENDED},
+    thread::{Entry, Thread, ThreadNode, CREATED, READY, RUNNING, SUSPENDED},
     types::{Arc, ThreadPriority},
 };
 use blueos_kconfig::TICKS_PER_SECOND;
@@ -90,7 +90,9 @@ pub extern "C" fn tm_thread_suspend(thread_id: c_int) -> c_int {
     let this_thread = scheduler::current_thread();
     // I'm suspending myself.
     if Thread::id(&this_thread) == Thread::id(&t) {
-        scheduler::suspend_me_for(usize::MAX);
+        scheduler::suspend_me_with_hook(|| {
+            t.transfer_state(RUNNING, SUSPENDED);
+        });
         return TM_SUCCESS;
     }
     if scheduler::remove_from_ready_queue(t) {

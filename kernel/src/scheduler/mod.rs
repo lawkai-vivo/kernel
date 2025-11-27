@@ -442,7 +442,7 @@ fn setup_timer(
     timeout
 }
 
-pub(crate) fn suspend_me_with_hook(hook: impl FnOnce() + 'static) {
+pub fn suspend_me_with_hook(hook: impl FnOnce() + 'static) {
     if unlikely(!is_schedule_ready()) {
         return;
     }
