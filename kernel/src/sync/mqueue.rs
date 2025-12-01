@@ -273,10 +273,10 @@ impl MessageQueue {
 
         // wakeup sender thread
         let mut send_queue = self.pend_queues[SEND_TYPE].irqsave_lock();
-        for mut entry in send_queue.iter() {
+        for entry in send_queue.iter() {
             let t = entry.thread.clone();
             scheduler::queue_ready_thread(thread::SUSPENDED, t);
-            WaitQueue::detach(&mut entry);
+            WaitQueue::pop(entry);
         }
         drop(send_queue);
         // reset ringbuffer

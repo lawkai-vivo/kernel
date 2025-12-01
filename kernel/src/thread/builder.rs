@@ -63,7 +63,7 @@ impl GlobalQueueVisitor<'_> {
 
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<ThreadNode> {
-        self.it.next()
+        self.it.next().map(|v| ThreadList::clone(v))
     }
 
     pub fn add(t: ThreadNode) -> bool {

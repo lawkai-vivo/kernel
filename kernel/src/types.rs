@@ -99,8 +99,18 @@ impl<T: 'static, A: IntrusiveAdapter<T> + 'static, O: StaticListOwner<T, A>>
     }
 
     #[inline]
-    pub fn insert(&mut self, me: Arc<T>) -> bool {
+    pub fn insert(&mut self, me: &mut Arc<T>) -> bool {
         ArcList::<T, A>::insert_after(&mut *self.0, me)
+    }
+
+    #[inline]
+    pub fn pop(&mut self, me: &T) -> Option<Arc<T>> {
+        ArcList::<T, A>::pop(me)
+    }
+
+    #[inline]
+    pub fn clone(&mut self, me: &T) -> Arc<T> {
+        ArcList::<T, A>::clone(me)
     }
 
     #[inline]
@@ -134,9 +144,9 @@ impl<T: 'static, A: IntrusiveAdapter<T> + 'static, O: StaticListOwner<T, A>>
     }
 
     #[inline]
-    pub fn insert(me: Arc<T>) -> bool {
+    pub fn insert(mut me: Arc<T>) -> bool {
         let mut head = O::get().irqsave_lock();
-        ArcList::<T, A>::insert_after(&mut *head, me)
+        ArcList::<T, A>::insert_after(&mut *head, &mut me)
     }
 }
 

@@ -25,14 +25,14 @@ impl_simple_intrusive_adapter!(OffsetOfWait, WaitEntry, wait_node);
 pub type WaitQueue = ArcList<WaitEntry, OffsetOfWait>;
 
 pub fn insert(wq: &mut WaitQueue, t: ThreadNode, mode: InsertMode) -> bool {
-    let e = Arc::new(WaitEntry {
+    let mut e = Arc::new(WaitEntry {
         wait_node: IlistHead::new(),
         thread: t,
     });
     if mode == InsertMode::InsertByPrio {
-        return wq.push_by(compare_priority, e);
+        return wq.push_by(compare_priority, &mut e);
     }
-    wq.push_back(e)
+    wq.push_back(&mut e)
 }
 
 pub fn wake_up_all(wq: &mut WaitQueue) -> usize {

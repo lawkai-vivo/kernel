@@ -301,7 +301,7 @@ impl Mutex {
         let mut entry = None;
         for e in mutex_lock.iter() {
             if Arc::is(&e.thread, who) {
-                entry = Some(e);
+                entry = Some(WaitQueue::clone(e));
                 break;
             }
         }
@@ -313,7 +313,7 @@ impl Mutex {
         if !WaitQueue::detach(&mut entry) {
             return false;
         }
-        mutex_lock.push_by(wait_queue::compare_priority, entry)
+        mutex_lock.push_by(wait_queue::compare_priority, &mut entry)
     }
 
     pub fn post(&self) {
@@ -394,7 +394,7 @@ impl Mutex {
             if limit >= CHAIN_LENGTH_LIMIT {
                 break;
             }
-            assert!(!Arc::is(&mutex, this_mutex));
+            assert_ne!(Arc::as_ptr(this_mutex), mutex as *const _);
             #[cfg(debugging_scheduler)]
             crate::trace!(
                 "Trying to get read lock of mutex {:?}, estimated R {}, W {}",

@@ -88,11 +88,11 @@ impl EventFlags {
                 need_wake = true;
             }
             if need_wake {
-                WaitQueue::detach(&mut entry);
+                WaitQueue::pop(entry);
                 if !thread.event_flags_mode().contains(EventFlagsMode::NO_CLEAR) {
                     clear_flags |= thread.event_flags_mask();
                 }
-                thread_list.push_back(thread);
+                thread_list.push_back(&mut thread);
             }
         }
 

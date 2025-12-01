@@ -375,6 +375,11 @@ impl<T: Sized, A: Adapter<T>> TinyArcList<T, A> {
         Some(unsafe { TinyArc::from_raw(me as *const T) })
     }
 
+    pub fn clone(me: &T) -> TinyArc<T> {
+        let node = unsafe { AtomicListHead::list_head_of_mut_unchecked(me) };
+        unsafe { Self::make_arc_from(node) }
+    }
+
     pub fn clear(&mut self) -> usize {
         let mut c = 0;
         for e in TinyArcListIterator::<T, A>::new(&self.head, Some(NonNull::from_ref(&self.tail))) {

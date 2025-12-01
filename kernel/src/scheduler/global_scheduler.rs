@@ -17,7 +17,7 @@ use crate::{
     sync::spinlock::{SpinLock, SpinLockGuard},
     thread,
     thread::{Thread, ThreadNode},
-    types::{ArcList, ThreadPriority, Uint},
+    types::{Arc, ArcList, ThreadPriority, Uint},
 };
 
 use core::mem::MaybeUninit;
@@ -125,11 +125,11 @@ where
 }
 
 #[inline]
-fn queue_ready_thread_inner(tbl: &mut SpinLockGuard<'_, ReadyTable>, t: ThreadNode) -> bool {
+fn queue_ready_thread_inner(tbl: &mut SpinLockGuard<'_, ReadyTable>, mut t: ThreadNode) -> bool {
     let priority = t.priority();
     assert!(priority <= MAX_THREAD_PRIORITY);
     let q = &mut tbl.tables[priority as usize];
-    if !q.push_back(t.clone()) {
+    if !q.push_back(&mut t) {
         return false;
     }
     tbl.set_active_queue(priority as u32);
@@ -163,7 +163,7 @@ pub fn remove_from_ready_queue(t: &ThreadNode) -> bool {
     debug_assert_eq!(t.state(), thread::READY);
     let q = &mut tbl.tables[priority as usize];
     // Conservatively search the whole queue.
-    let removed = q.remove_if(|e| ThreadNode::is(e, t));
+    let removed = q.remove_if(|e| e as *const _ == Arc::as_ptr(t));
     let Some(removed) = removed else {
         return false;
     };

@@ -91,15 +91,15 @@ pub fn atomic_wait(atom: &AtomicUsize, val: usize, timeout: Option<usize>) -> Re
     let addr = atom as *const _ as usize;
     for e in ArcListIterator::new(w.get_list_mut(), None) {
         if e.addr() == addr {
-            entry = Some(e);
+            entry = Some(w.clone(e));
             break;
         }
     }
     let entry = entry.map_or_else(
         || {
-            let entry = Arc::new(AtomicWaitEntry::new(addr));
+            let mut entry = Arc::new(AtomicWaitEntry::new(addr));
             entry.init();
-            w.insert(entry.clone());
+            w.insert(&mut entry);
             entry
         },
         |e| e,
@@ -158,7 +158,7 @@ pub fn atomic_wake(atom: &AtomicUsize, how_many: usize) -> Result<usize, Error> 
             }
         }
         if we.is_empty() {
-            w.detach(&mut e.clone());
+            w.pop(e);
         }
         if woken == how_many {
             break;

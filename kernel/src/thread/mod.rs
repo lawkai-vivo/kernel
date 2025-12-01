@@ -353,15 +353,15 @@ impl Thread {
     }
 
     #[inline]
-    pub fn add_acquired_mutex(&self, mu: Arc<Mutex>) -> bool {
-        self.acquired_mutexes.irqsave_write().push_back(mu)
+    pub fn add_acquired_mutex(&self, mut mu: Arc<Mutex>) -> bool {
+        self.acquired_mutexes.irqsave_write().push_back(&mut mu)
     }
 
     #[inline]
     pub fn remove_acquired_mutex(&self, mu: &Arc<Mutex>) -> bool {
         self.acquired_mutexes
             .irqsave_write()
-            .remove_if(|e| Arc::is(e, mu))
+            .remove_if(|e| Arc::as_ptr(mu) == e as *const _)
             .is_some()
     }
 

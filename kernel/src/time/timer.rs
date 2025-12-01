@@ -115,16 +115,17 @@ impl TimerWheel {
         let mut wheel = self.wheel.irqsave_lock();
         let cursor = timeout_ticks & (TIMER_WHEEL_SIZE as usize - 1);
         let it = wheel[cursor].iter();
-        for mut t in it {
+        for t in it {
             if t.timeout_ticks() > timeout_ticks {
+                let mut t = WheelTimerList::clone(t);
                 WheelTimerList::insert_before(
                     unsafe { WheelTimerList::list_head_of_mut_unchecked(&mut t) },
-                    timer,
+                    &mut timer,
                 );
                 return;
             }
         }
-        wheel[cursor].push_back(timer.clone());
+        wheel[cursor].push_back(&mut timer);
         #[cfg(soft_timer)]
         {
             if timer.is_soft() {
@@ -167,12 +168,12 @@ impl TimerWheel {
         {
             let wheel = self.wheel.irqsave_lock();
             let mut iter = wheel[cursor].iter();
-            for mut timer in iter {
+            for timer in iter {
                 if timer.timeout_ticks() > current_ticks {
                     break;
                 }
-                WheelTimerList::detach(&mut timer);
-                task_list.push_back(timer);
+                let mut timer = WheelTimerList::pop(timer).unwrap();
+                task_list.push_back(&mut timer);
             }
         }
 

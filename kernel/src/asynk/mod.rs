@@ -107,7 +107,7 @@ fn wake_poller() {
 }
 
 pub fn spawn(future: impl Future<Output = ()> + Send + 'static) -> Arc<Tasklet> {
-    let task = create_tasklet(future);
+    let mut task = create_tasklet(future);
     enqueue_active_tasklet(&mut task);
     wake_poller();
     task
@@ -141,7 +141,7 @@ fn poll_inner() {
             // If we detach the task what ever it's ready or
             // pending, it would be edge-level triggered. Now
             // we're using level-trigger mode conservatively.
-            AsyncWorkQueue::WorkList::detach(task)
+            AsyncWorkQueue::WorkList::pop(task);
         } else {
             // FIXME: This is not an efficient impl right now. We
             // might need a waker for each future, so that the poller
