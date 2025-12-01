@@ -18,5 +18,5 @@ pub mod typed_ilist;
 
 pub trait GenericList {
     type Node;
-    type Iter: Iterator;
+    //type Iter: Iterator;
 }

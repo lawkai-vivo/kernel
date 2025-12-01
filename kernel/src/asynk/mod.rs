@@ -91,7 +91,7 @@ pub fn block_on(future: impl Future<Output = ()> + Send + 'static) {
     scheduler::suspend_me_with_hook(move || {
         let ok = t.transfer_state(thread::RUNNING, thread::SUSPENDED);
         assert!(ok);
-        enqueue_active_tasklet(task);
+        enqueue_active_tasklet(&mut task);
         #[cfg(debugging_scheduler)]
         crate::trace!(
             "[TH:0x{:x}] is waking up the poller",
@@ -108,20 +108,19 @@ fn wake_poller() {
 
 pub fn spawn(future: impl Future<Output = ()> + Send + 'static) -> Arc<Tasklet> {
     let task = create_tasklet(future);
-    enqueue_active_tasklet(task.clone());
+    enqueue_active_tasklet(&mut task);
     wake_poller();
     task
 }
 
-pub fn enqueue_active_tasklet(t: Arc<Tasklet>) {
+pub fn enqueue_active_tasklet(t: &mut Arc<Tasklet>) {
     #[cfg(debugging_scheduler)]
     crate::trace!(
         "[TH:0x{:x}] is enqueuing tasklet",
         scheduler::current_thread_id()
     );
     let mut q = ASYNC_WORK_QUEUE.get_active_queue();
-    let _guard = t.lock();
-    q.push_back(t.clone());
+    q.push_back(t);
     #[cfg(debugging_scheduler)]
     crate::trace!(
         "[TH:0x{:x}] has enqueued tasklet",
@@ -138,10 +137,11 @@ fn poll_inner() {
             if let Some(t) = l.blocked.take() {
                 scheduler::queue_ready_thread(thread::SUSPENDED, t);
             }
+            drop(l);
             // If we detach the task what ever it's ready or
             // pending, it would be edge-level triggered. Now
             // we're using level-trigger mode conservatively.
-            AsyncWorkQueue::WorkList::detach(&mut task.clone());
+            AsyncWorkQueue::WorkList::detach(task)
         } else {
             // FIXME: This is not an efficient impl right now. We
             // might need a waker for each future, so that the poller

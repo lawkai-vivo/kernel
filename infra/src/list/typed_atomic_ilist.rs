@@ -72,8 +72,8 @@ impl<T, A: Adapter<T>> AtomicListHead<T, A> {
     }
 
     #[inline]
-    pub unsafe fn list_head_of_mut_unchecked(this: &mut T) -> &mut Self {
-        let ptr = this as *mut _ as *mut u8;
+    pub unsafe fn list_head_of_mut_unchecked(this: &T) -> &mut Self {
+        let ptr: *mut u8 = core::mem::transmute(this as *const _ as *const u8);
         let list_head_ptr = ptr.add(A::offset()) as *mut Self;
         &mut *list_head_ptr
     }

@@ -33,7 +33,8 @@ use crate::{
     thread::{self, Thread, ThreadNode},
     time::{NO_WAITING, WAITING_FOREVER},
     types::{
-        impl_simple_intrusive_adapter, Arc, ArcCas, ArcList, GenericList, ThreadPriority, Uint,
+        impl_simple_intrusive_adapter, Arc, ArcCas, ArcList, ArcListIterator, GenericList,
+        ThreadPriority, Uint,
     },
 };
 use alloc::string::String;
@@ -45,7 +46,7 @@ use core::{
 
 impl_simple_intrusive_adapter!(OffsetOfMutexNode, Mutex, mutex_node);
 pub(crate) type MutexList = ArcList<Mutex, OffsetOfMutexNode>;
-pub(crate) type MutexListIterator = <MutexList as GenericList>::Iter;
+pub(crate) type MutexListIterator<'a> = ArcListIterator<'a, Mutex, OffsetOfMutexNode>;
 type MutexNode = <MutexList as GenericList>::Node;
 
 const CHAIN_LENGTH_LIMIT: usize = 4;

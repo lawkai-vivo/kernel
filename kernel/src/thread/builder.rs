@@ -42,7 +42,7 @@ static_arc! {
 
 pub struct GlobalQueueVisitor<'a> {
     lock: SpinLockGuard<'a, Head>,
-    it: ArcListIterator<Thread, OffsetOfGlobal>,
+    it: ArcListIterator<'a, Thread, OffsetOfGlobal>,
 }
 
 #[derive(Default, Debug)]
