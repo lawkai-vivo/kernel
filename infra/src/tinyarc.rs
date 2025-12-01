@@ -205,8 +205,8 @@ impl<T: Sized> Clone for TinyArc<T> {
     fn clone(&self) -> TinyArc<T> {
         let old = unsafe { self.inner.as_ref() }
             .rc
-            .fetch_add(1, Ordering::AcqRel);
-        assert!(old >= 1);
+            .fetch_add(1, Ordering::Relaxed);
+        debug_assert!(old >= 1);
         TinyArc { inner: self.inner }
     }
 }
@@ -216,10 +216,11 @@ impl<T: Sized> Drop for TinyArc<T> {
     fn drop(&mut self) {
         let old_val = unsafe { self.inner.as_ref() }
             .rc
-            .fetch_sub(1, Ordering::Acquire);
+            .fetch_sub(1, Ordering::Release);
         if old_val != 1 {
             return;
         }
+        fence(Ordering::Acquire);
         // Static data should never reach here.
         let x = unsafe { Box::from_non_null(self.inner) };
         drop(x);
@@ -353,11 +354,12 @@ impl<T: Sized, A: Adapter<T>> TinyArcList<T, A> {
         let Some(mut next) = self.head.next() else {
             panic!("Head's next node should not be None");
         };
-        let arc = unsafe { Self::make_arc_from(next.as_ref()) };
         let ok = AtomicListHead::<T, A>::detach(unsafe { next.as_mut() });
         assert!(ok);
-        unsafe { TinyArc::<T>::decrement_strong_count(&arc) };
-        Some(arc)
+        Some(unsafe { TinyArc::from_raw(next.as_ref().owner() as *const T) })
+        //let arc = unsafe { Self::make_arc_from(next.as_ref()) };
+        //unsafe { TinyArc::<T>::decrement_strong_count(&arc) };
+        //Some(arc)
     }
 
     pub fn detach(me: &mut TinyArc<T>) -> bool {

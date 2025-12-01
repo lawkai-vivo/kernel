@@ -330,9 +330,9 @@ pub unsafe extern "C" fn handle_svc() {
             store_callee_saved_regs!(),
             "
             mov r0, r12
-            push {{r3, lr}}
+            push {{lr}}
             bl {syscall_handler}
-            pop {{r3, lr}}
+            pop {{lr}}
             mov r12, r0
             ",
             load_callee_saved_regs!(),
@@ -534,7 +534,8 @@ pub extern "C" fn disable_local_irq() {
 }
 
 #[coverage(off)]
-#[cfg_attr(debug, inline(never))]
+//#[cfg_attr(debug, inline(never))]
+#[inline]
 pub extern "C" fn disable_local_irq_save() -> usize {
     let old: usize;
     unsafe {
@@ -555,7 +556,8 @@ pub extern "C" fn disable_local_irq_save() -> usize {
 }
 
 #[coverage(off)]
-#[cfg_attr(debug, inline(never))]
+//#[cfg_attr(debug, inline(never))]
+#[inline]
 pub extern "C" fn enable_local_irq_restore(old: usize) {
     atomic::compiler_fence(Ordering::SeqCst);
     unsafe {

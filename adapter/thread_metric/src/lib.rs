@@ -70,11 +70,11 @@ pub extern "C" fn tm_thread_create(
 #[no_mangle]
 pub extern "C" fn tm_thread_resume(thread_id: c_int) -> c_int {
     let t = unsafe { TM_THREADS[thread_id as usize].assume_init_ref().clone() };
-    let this_thread = scheduler::current_thread();
-    // Resuming myself always succeeds.
-    if Thread::id(&this_thread) == Thread::id(&t) {
-        return TM_SUCCESS;
-    }
+    //    let this_thread = scheduler::current_thread();
+    //    // Resuming myself always succeeds.
+    //    if Thread::id(&this_thread) == Thread::id(&t) {
+    //        return TM_SUCCESS;
+    //    }
     if scheduler::queue_ready_thread(SUSPENDED, t.clone())
         || scheduler::queue_ready_thread(CREATED, t)
     {
@@ -87,9 +87,9 @@ pub extern "C" fn tm_thread_resume(thread_id: c_int) -> c_int {
 #[no_mangle]
 pub extern "C" fn tm_thread_suspend(thread_id: c_int) -> c_int {
     let t = unsafe { TM_THREADS[thread_id as usize].assume_init_ref() };
-    let this_thread = scheduler::current_thread();
+    let this_thread_id = scheduler::current_thread_id();
     // I'm suspending myself.
-    if Thread::id(&this_thread) == Thread::id(&t) {
+    if this_thread_id == Thread::id(t) {
         scheduler::suspend_me_for(time::WAITING_FOREVER);
         return TM_SUCCESS;
     }

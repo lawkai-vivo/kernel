@@ -24,6 +24,7 @@ use crate::{
     scheduler::ContextSwitchHookHolder,
     support::sideeffect,
     syscalls::{dispatch_syscall, Context as ScContext},
+    thread,
     thread::Thread,
 };
 use core::{
@@ -224,13 +225,13 @@ fn might_switch_context(from: &Context, ra: usize) -> usize {
 
     let this_thread = scheduler::current_thread();
 
-    let Some(next) = scheduler::next_preferred_thread(this_thread.priority()) else {
+    let Some(next) = scheduler::next_preferred_thread(scheduler::current_thread_priority()) else {
         return old_sp;
     };
     this_thread.lock().set_saved_sp(old_sp);
     let to_sp = next.saved_sp();
     let mut hooks = ContextSwitchHookHolder::new(next);
-    hooks.set_ready_thread(this_thread);
+    hooks.set_prev_thread_target_state(thread::READY);
     switch_stack_with_hook(to_sp, Some(&mut hooks), ra, handle_switch)
 }
 

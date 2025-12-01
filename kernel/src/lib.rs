@@ -118,7 +118,7 @@ mod tests {
     use alloc::vec::Vec;
     use blueos_header::syscalls::NR::Nop;
     use blueos_kconfig::NUM_CORES;
-    use blueos_test_macro::test;
+    use blueos_test_macro::{only_test, test};
     use core::{
         mem::MaybeUninit,
         panic::PanicInfo,
@@ -434,7 +434,7 @@ mod tests {
         TEST_SWITCH_CONTEXT.fetch_add(1, Ordering::Relaxed);
     }
 
-    #[test]
+    #[only_test]
     fn stress_context_switch() {
         reset_and_queue_test_threads(test_switch_context, Some(test_switch_context_cleanup));
         loop {
