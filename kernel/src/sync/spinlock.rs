@@ -33,8 +33,10 @@ pub type SpinLockWriteGuard<'a, T> = SpinLockGuard<'a, T>;
 #[derive(Debug)]
 #[repr(C)]
 pub struct SpinLockGuard<'a, T: ?Sized> {
-    lock_guard: RwLockWriteGuard<'a, T>,
+    // lock_guard: RwLockWriteGuard<'a, T>,
+    ptr: *mut T,
     irq_guard: Option<DisableInterruptGuard>,
+    _a: PhantomData<&'a T>,
 }
 
 impl<T: ?Sized> SpinLockGuard<'_, T> {
@@ -48,14 +50,16 @@ impl<'a, T: 'a + ?Sized> Deref for SpinLockGuard<'a, T> {
     type Target = T;
     #[inline]
     fn deref(&self) -> &T {
-        self.lock_guard.deref()
+        // self.lock_guard.deref()
+        unsafe { &*self.ptr }
     }
 }
 
 impl<'a, T: 'a + ?Sized> DerefMut for SpinLockGuard<'a, T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut T {
-        self.lock_guard.deref_mut()
+        //self.lock_guard.deref_mut()
+        unsafe { &mut *self.ptr }
     }
 }
 
@@ -117,10 +121,13 @@ impl<T: ?Sized> SpinLock<T> {
     }
 
     pub fn try_lock(&self) -> Option<SpinLockGuard<'_, T>> {
-        let lock_guard = self.lock.try_write()?;
+        // let lock_guard = self.lock.try_write()?;
+        let ptr = self.lock.data.get();
         Some(SpinLockGuard {
             irq_guard: None,
-            lock_guard,
+            //lock_guard,
+            ptr,
+            _a: PhantomData,
         })
     }
 
@@ -241,10 +248,12 @@ impl<T: Sized, A: const IntrusiveAdapter<T>> ISpinLock<T, A> {
 
     #[inline]
     pub fn lock(&self) -> SpinLockGuard<'_, T> {
-        let l = self.lock.write();
+        // let l = self.lock.write();
         SpinLockGuard {
-            lock_guard: l,
+            // lock_guard: l,
+            ptr: self.lock.this_mut() as *mut T,
             irq_guard: None,
+            _a: PhantomData,
         }
     }
 

@@ -96,7 +96,7 @@ type AtomicUsize = core::sync::atomic::AtomicUsize;
 /// ```
 pub struct RwLock<T: ?Sized> {
     lock: AtomicUsize,
-    data: UnsafeCell<T>,
+    pub data: UnsafeCell<T>,
 }
 
 const READER: Usize = 1 << 2;
@@ -844,7 +844,7 @@ impl<T: Sized, A: Adapter<T>> IRwLock<T, A> {
     }
 
     #[inline]
-    fn this_mut(&self) -> &mut T {
+    pub fn this_mut(&self) -> &mut T {
         let ptr = self as *const _ as *mut u8;
         let base = unsafe { ptr.sub(A::offset()) as *mut T };
         unsafe { &mut *base }
