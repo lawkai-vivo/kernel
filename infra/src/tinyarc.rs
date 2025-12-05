@@ -51,15 +51,11 @@ pub struct TinyArcInner<T: Sized> {
 }
 
 impl<T: Sized> TinyArcInner<T> {
-    pub const fn const_new(data: T) -> Self {
+    pub const fn new(data: T) -> Self {
         Self {
             data,
             rc: AtomicUint::new(1),
         }
-    }
-
-    pub const fn new(data: T) -> Self {
-        Self::const_new(data)
     }
 }
 
@@ -87,8 +83,8 @@ impl<T: Default + Sized> Default for TinyArc<T> {
 impl<T> TinyArc<T> {
     #[inline]
     pub fn new(data: T) -> Self {
-        let x = Box::new(TinyArcInner::const_new(data));
-        assert_eq!(Box::as_ptr(&x) as usize % core::mem::align_of::<T>(), 0);
+        let x = Box::new(TinyArcInner::new(data));
+        debug_assert_eq!(Box::as_ptr(&x) as usize % core::mem::align_of::<T>(), 0);
         Self {
             inner: unsafe { NonNull::new_unchecked(Box::into_raw(x)) },
         }
@@ -102,14 +98,9 @@ impl<T> TinyArc<T> {
     }
 
     #[inline]
-    pub unsafe fn from_inner(inner: NonNull<TinyArcInner<T>>) -> Self {
+    pub unsafe fn clone_from_inner(inner: NonNull<TinyArcInner<T>>) -> Self {
         inner.as_ref().rc.fetch_add(1, Ordering::Release);
         TinyArc { inner }
-    }
-
-    #[inline]
-    pub fn get_handle(this: &Self) -> *const u8 {
-        Self::as_ptr(this) as *const u8
     }
 
     #[inline]
@@ -127,25 +118,24 @@ impl<T> TinyArc<T> {
     #[inline]
     pub unsafe fn increment_strong_count(this: &Self) {
         let old = this.inner.as_ref().rc.fetch_add(1, Ordering::Relaxed);
-        assert_ne!(old, 0);
+        debug_assert_ne!(old, 0);
     }
 
     #[inline]
     pub unsafe fn decrement_strong_count(this: &Self) {
         let old = this.inner.as_ref().rc.fetch_sub(1, Ordering::Relaxed);
-        assert_ne!(old, 1);
+        debug_assert_ne!(old, 1);
     }
 
     #[inline]
     pub fn is(this: &Self, that: &Self) -> bool {
-        Self::get_handle(this) == Self::get_handle(that)
+        Self::ptr_eq(this, that)
     }
 
     #[inline]
     #[must_use]
     pub fn as_ptr(this: &Self) -> *const T {
         let ptr: *mut TinyArcInner<T> = NonNull::as_ptr(this.inner);
-
         // SAFETY: This cannot go through Deref::deref because this is required to retain raw/mut provenance
         unsafe { &raw mut (*ptr).data }
     }
@@ -192,7 +182,7 @@ impl<T> TinyArc<T> {
     }
 
     #[inline]
-    unsafe fn from_ptr(inner: *mut TinyArcInner<T>) -> Self {
+    unsafe fn from_inner_ptr(inner: *mut TinyArcInner<T>) -> Self {
         debug_assert!(!inner.is_null());
         TinyArc {
             inner: NonNull::new_unchecked(inner),
@@ -206,7 +196,7 @@ impl<T: Sized> Clone for TinyArc<T> {
         let old = unsafe { self.inner.as_ref() }
             .rc
             .fetch_add(1, Ordering::AcqRel);
-        assert!(old >= 1);
+        debug_assert!(old >= 1);
         TinyArc { inner: self.inner }
     }
 }
@@ -252,15 +242,11 @@ pub struct TinyArcList<T: Sized, A: Adapter<T>> {
 }
 
 impl<T: Sized, A: Adapter<T>> TinyArcList<T, A> {
-    pub const fn const_new() -> Self {
+    pub const fn new() -> Self {
         Self {
             head: AtomicListHead::<T, A>::new(),
             tail: AtomicListHead::<T, A>::new(),
         }
-    }
-
-    pub const fn new() -> Self {
-        Self::const_new()
     }
 
     #[inline]
@@ -290,12 +276,11 @@ impl<T: Sized, A: Adapter<T>> TinyArcList<T, A> {
     }
 
     #[inline]
-    pub unsafe fn make_arc_from(node: &AtomicListHead<T, A>) -> TinyArc<T> {
-        let ptr = node as *const _ as *const u8;
-        let mut offset = core::mem::offset_of!(TinyArcInner<T>, data);
-        offset += A::offset();
-        let inner = &*(ptr.sub(offset) as *const TinyArcInner<T>);
-        TinyArc::from_inner(NonNull::from_ref(inner))
+    pub unsafe fn clone_from(node: &AtomicListHead<T, A>) -> TinyArc<T> {
+        let owner = node.owner();
+        let ret = TinyArc::from_raw(owner as *const T);
+        TinyArc::increment_strong_count(&ret);
+        ret
     }
 
     pub fn insert_after(other_node: &mut AtomicListHead<T, A>, me: &mut TinyArc<T>) -> bool {
@@ -332,7 +317,7 @@ impl<T: Sized, A: Adapter<T>> TinyArcList<T, A> {
         let Some(mut prev) = self.tail.prev() else {
             panic!("Tail's prev node should not be None");
         };
-        Some(unsafe { Self::make_arc_from(prev.as_ref()) })
+        Some(unsafe { Self::clone_from(prev.as_ref()) })
     }
 
     pub fn front(&self) -> Option<TinyArc<T>> {
@@ -342,7 +327,7 @@ impl<T: Sized, A: Adapter<T>> TinyArcList<T, A> {
         let Some(mut next) = self.head.next() else {
             panic!("Head's next node should not be None");
         };
-        Some(unsafe { Self::make_arc_from(next.as_ref()) })
+        Some(unsafe { Self::clone_from(next.as_ref()) })
     }
 
     pub fn pop_front(&mut self) -> Option<TinyArc<T>> {
@@ -368,7 +353,7 @@ impl<T: Sized, A: Adapter<T>> TinyArcList<T, A> {
     }
 
     pub fn pop(me: &T) -> Option<TinyArc<T>> {
-        let node = unsafe { AtomicListHead::<T, A>::list_head_of_mut_unchecked(me) };
+        let node = unsafe { AtomicListHead::<T, A>::list_head_of(me) };
         if !AtomicListHead::detach(node) {
             return None;
         }
@@ -376,14 +361,14 @@ impl<T: Sized, A: Adapter<T>> TinyArcList<T, A> {
     }
 
     pub fn clone(me: &T) -> TinyArc<T> {
-        let node = unsafe { AtomicListHead::list_head_of_mut_unchecked(me) };
-        unsafe { Self::make_arc_from(node) }
+        let node = unsafe { AtomicListHead::list_head_of(me) };
+        unsafe { Self::clone_from(node) }
     }
 
     pub fn clear(&mut self) -> usize {
         let mut c = 0;
         for e in TinyArcListIterator::<T, A>::new(&self.head, Some(NonNull::from_ref(&self.tail))) {
-            let node = unsafe { AtomicListHead::list_head_of_mut_unchecked(e) };
+            let node = unsafe { AtomicListHead::list_head_of(e) };
             let ok = AtomicListHead::<T, A>::detach(node);
             debug_assert!(ok);
             drop(unsafe { TinyArc::from_raw(e as *const T) });
@@ -399,12 +384,12 @@ impl<T: Sized, A: Adapter<T>> TinyArcList<T, A> {
     // Find a stable sorting position.
     fn find_insert_position_by<'a, 'b, 'c, Compare>(
         compare: Compare,
-        it: &'a mut TinyArcListIterator<'c, T, A>,
-        val: &'b TinyArc<T>,
+        it: &'a mut TinyArcListIterator<'b, T, A>,
+        val: &'c TinyArc<T>,
     ) -> Option<&'a T>
     where
         Compare: Fn(&T, &T) -> core::cmp::Ordering,
-        A: 'c,
+        A: 'b,
     {
         use core::cmp::Ordering;
         let mut last = None;
@@ -432,10 +417,7 @@ impl<T: Sized, A: Adapter<T>> TinyArcList<T, A> {
         let Some(other_val) = Self::find_insert_position_by(compare, &mut it, val) else {
             return Self::insert_after(head, val);
         };
-        Self::insert_after(
-            unsafe { AtomicListHead::list_head_of_mut_unchecked(other_val) },
-            val,
-        )
+        Self::insert_after(unsafe { AtomicListHead::list_head_of(other_val) }, val)
     }
 
     pub fn push_by<Compare>(&mut self, compare: Compare, val: &mut TinyArc<T>) -> bool
@@ -446,10 +428,7 @@ impl<T: Sized, A: Adapter<T>> TinyArcList<T, A> {
         let Some(other_val) = Self::find_insert_position_by(compare, &mut it, val) else {
             return Self::insert_after(&mut self.head, val);
         };
-        Self::insert_after(
-            unsafe { AtomicListHead::list_head_of_mut_unchecked(other_val) },
-            val,
-        )
+        Self::insert_after(unsafe { AtomicListHead::list_head_of(other_val) }, val)
     }
 
     pub fn remove_if<Predicate>(&mut self, is: Predicate) -> Option<TinyArc<T>>
@@ -460,7 +439,7 @@ impl<T: Sized, A: Adapter<T>> TinyArcList<T, A> {
             if !is(e) {
                 continue;
             }
-            let node = unsafe { AtomicListHead::list_head_of_mut_unchecked(e) };
+            let node = unsafe { AtomicListHead::list_head_of(e) };
             let ok = AtomicListHead::<T, A>::detach(node);
             debug_assert!(ok);
             return Some(unsafe { TinyArc::from_raw(e as *const T) });
@@ -559,7 +538,7 @@ impl<T: Sized> TinyArcCas<T> {
         if inner.is_null() {
             return None;
         }
-        Some(unsafe { TinyArc::from_inner(NonNull::new_unchecked(inner)) })
+        Some(unsafe { TinyArc::clone_from_inner(NonNull::new_unchecked(inner)) })
     }
 
     pub fn from_arc(arc: TinyArc<T>) -> Self {
@@ -625,7 +604,7 @@ impl<T: Sized> TinyArcCas<T> {
         }
         // old_ptr must be a valid *mut TinyArcInner<T>, we can use it to
         // recover a TinyArc<T>.
-        Some(unsafe { TinyArc::from_ptr(old_ptr) })
+        Some(unsafe { TinyArc::from_inner_ptr(old_ptr) })
     }
 }
 

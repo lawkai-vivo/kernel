@@ -91,10 +91,6 @@ impl<T, A: Adapter<T>> Iterator for ListReverseIterator<T, A> {
 
 impl<T, A: Adapter<T>> ListHead<T, A> {
     pub const fn new() -> Self {
-        Self::const_new()
-    }
-
-    pub const fn const_new() -> Self {
         Self {
             prev: None,
             next: None,
@@ -112,7 +108,7 @@ impl<T, A: Adapter<T>> ListHead<T, A> {
     pub unsafe fn owner_mut(&mut self) -> &mut T {
         let ptr = self as *mut _ as *mut u8;
         let base = unsafe { ptr.sub(A::offset()) as *mut T };
-        unsafe { &mut *base }
+        &mut *base
     }
 
     pub fn is_detached(&self) -> bool {
@@ -120,33 +116,33 @@ impl<T, A: Adapter<T>> ListHead<T, A> {
     }
 
     pub fn insert_after(head: &mut ListHead<T, A>, me: &mut ListHead<T, A>) -> bool {
-        unsafe {
-            if !me.is_detached() {
-                return false;
-            }
-            let next = core::mem::replace(&mut head.next, Some(NonNull::from_mut(me)));
-            let _ = core::mem::replace(&mut me.next, next);
-            let prev = next.map_or(Some(NonNull::from_mut(head)), |mut v| {
-                core::mem::replace(&mut v.as_mut().prev, Some(NonNull::from_mut(me)))
-            });
-            let _ = core::mem::replace(&mut me.prev, prev);
-            true
+        if !me.is_detached() {
+            return false;
         }
+        let next = core::mem::replace(&mut head.next, Some(NonNull::from_mut(me)));
+        let _ = core::mem::replace(&mut me.next, next);
+        let prev = unsafe {
+            next.map_or(Some(NonNull::from_mut(head)), |mut v| {
+                core::mem::replace(&mut v.as_mut().prev, Some(NonNull::from_mut(me)))
+            })
+        };
+        let _ = core::mem::replace(&mut me.prev, prev);
+        true
     }
 
     pub fn insert_before(tail: &mut ListHead<T, A>, me: &mut ListHead<T, A>) -> bool {
-        unsafe {
-            if !me.is_detached() {
-                return false;
-            }
-            let prev = core::mem::replace(&mut tail.prev, Some(NonNull::from_mut(me)));
-            let _ = core::mem::replace(&mut me.prev, prev);
-            let next = prev.map_or(Some(NonNull::from_mut(tail)), |mut v| {
-                core::mem::replace(&mut v.as_mut().next, Some(NonNull::from_mut(me)))
-            });
-            let _ = core::mem::replace(&mut me.next, next);
-            true
+        if !me.is_detached() {
+            return false;
         }
+        let prev = core::mem::replace(&mut tail.prev, Some(NonNull::from_mut(me)));
+        let _ = core::mem::replace(&mut me.prev, prev);
+        let next = unsafe {
+            prev.map_or(Some(NonNull::from_mut(tail)), |mut v| {
+                core::mem::replace(&mut v.as_mut().next, Some(NonNull::from_mut(me)))
+            })
+        };
+        let _ = core::mem::replace(&mut me.next, next);
+        true
     }
 
     pub fn insert_after_with_hook<F: Fn(&ListHead<T, A>)>(
@@ -162,20 +158,18 @@ impl<T, A: Adapter<T>> ListHead<T, A> {
     }
 
     pub fn detach(me: &mut ListHead<T, A>) -> bool {
-        unsafe {
-            if me.is_detached() {
-                return false;
-            }
-            if let Some(mut prev) = me.prev {
-                let _ = core::mem::replace(&mut prev.as_mut().next, me.next);
-            };
-            if let Some(mut next) = me.next {
-                let _ = core::mem::replace(&mut next.as_mut().prev, me.prev);
-            };
-            me.prev = None;
-            me.next = None;
-            true
+        if me.is_detached() {
+            return false;
         }
+        if let Some(mut prev) = me.prev {
+            let _ = unsafe { core::mem::replace(&mut prev.as_mut().next, me.next) };
+        };
+        if let Some(mut next) = me.next {
+            let _ = unsafe { core::mem::replace(&mut next.as_mut().prev, me.prev) };
+        };
+        me.prev = None;
+        me.next = None;
+        true
     }
 
     pub fn detach_with_hook<F>(me: &mut ListHead<T, A>, hook: F) -> bool
@@ -348,5 +342,22 @@ mod tests {
         //struct C {
         //    node: ListHead<B, Node>,
         //}
+    }
+
+    impl_simple_intrusive_adapter!(Node, OnStackEntry, node);
+    struct OnStackEntry {
+        node: ListHead<OnStackEntry, Node>,
+        id: usize,
+    }
+
+    fn insert_list_head_on_stack(head: &mut ListHead<OnStackEntry, Node>) {
+        let mut n = ListHead::<OnStackEntry, Node>::new();
+        ListHead::insert_after(head, &mut n);
+    }
+
+    #[test]
+    fn test_list_head_on_stack() {
+        let mut n = ListHead::<OnStackEntry, Node>::new();
+        insert_list_head_on_stack(&mut n);
     }
 }
