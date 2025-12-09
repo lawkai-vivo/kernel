@@ -27,6 +27,7 @@ use alloc::boxed::Box;
 use core::{
     marker::PhantomData,
     ops::Deref,
+    pin::{pin, Pin},
     ptr::NonNull,
     sync::atomic::{fence, AtomicPtr, Ordering},
 };
@@ -67,6 +68,7 @@ impl<T: Sized> TinyArcInner<T> {
 // be static or allocated from the heap and wrapped in TinyArc.
 unsafe impl<T> Send for TinyArcInner<T> {}
 unsafe impl<T> Sync for TinyArcInner<T> {}
+impl<T> !Unpin for TinyArcInner<T> {}
 
 // Make it transparent so that we don't have extra space overhead when
 // using Option<TinyArc<T>>.
@@ -197,6 +199,15 @@ impl<T> TinyArc<T> {
         TinyArc {
             inner: NonNull::new_unchecked(inner),
         }
+    }
+
+    // This method is useful when we are creating a TinyArc on stack. TinyArc on
+    // stack is useful when the object's lifetime is ensured to be within the
+    // function's scope. User of this method should **NOT** send the TinyArc
+    // created by this method to another thread.
+    #[inline]
+    pub unsafe fn from_pinned_inner(this: Pin<&mut TinyArcInner<T>>) -> Self {
+        Self::from_inner_ptr(Pin::get_unchecked_mut(this) as *mut _)
     }
 }
 
@@ -1177,5 +1188,19 @@ mod tests {
         assert_eq!(l.front().unwrap().id, 43);
         l.clear();
         assert!(l.is_empty());
+    }
+
+    #[test]
+    fn test_tinyarc_on_stack() {
+        struct Foo {
+            val: i32,
+        }
+        let mut inner = TinyArcInner::new(Foo { val: 42 });
+        let pinned = unsafe { Pin::new_unchecked(&mut inner) };
+        let pinned_arc = unsafe { TinyArc::from_pinned_inner(pinned) };
+        assert_eq!(TinyArc::strong_count(&pinned_arc), 1);
+        unsafe { core::ptr::drop_in_place(&mut inner) };
+        core::mem::forget(pinned_arc);
+        core::mem::forget(inner);
     }
 }
