@@ -575,17 +575,17 @@ impl Thread {
 
     #[inline]
     pub fn disable_preempt(&self) -> bool {
-        self.preempt_count.fetch_add(1, Ordering::Acquire) == 0
+        self.preempt_count.fetch_add(1, Ordering::Release) == 0
     }
 
     #[inline]
     pub fn enable_preempt(&self) -> bool {
-        self.preempt_count.fetch_sub(1, Ordering::Acquire) == 1
+        self.preempt_count.fetch_sub(1, Ordering::Release) == 1
     }
 
     #[inline]
     pub fn preempt_count(&self) -> Uint {
-        self.preempt_count.load(Ordering::Relaxed)
+        self.preempt_count.load(Ordering::Acquire)
     }
 
     #[cfg(robin_scheduler)]
