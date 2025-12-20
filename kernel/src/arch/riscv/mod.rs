@@ -17,8 +17,9 @@ mod trap;
 
 use crate::{irq as sysirq, scheduler, scheduler::ContextSwitchHookHolder};
 use core::{
+    cell::Cell,
     mem::offset_of,
-    sync::atomic::{compiler_fence, AtomicBool, AtomicU8, Ordering},
+    sync::atomic::{compiler_fence, Ordering},
 };
 pub use trap::*;
 
@@ -40,14 +41,18 @@ pub(crate) const MIE_MEIE: usize = 1 << 11;
 // We haven't supported supervisor mode and user mode yet.
 
 // FIXME: We don't need atomic here.
-static PENDING_SWITCH_CONTEXT: [AtomicBool; NUM_CORES] =
-    [const { AtomicBool::new(false) }; NUM_CORES];
+static mut PENDING_SWITCH_CONTEXT: [Cell<bool>; NUM_CORES] =
+    [const { Cell::new(false) }; NUM_CORES];
 
 #[inline]
 pub(crate) extern "C" fn pend_switch_context() {
+    if !sysirq::is_in_irq() {
+        scheduler::relinquish_me();
+        return;
+    }
     let level = disable_local_irq_save();
     let id = current_cpu_id();
-    PENDING_SWITCH_CONTEXT[id].store(true, Ordering::Release);
+    unsafe { PENDING_SWITCH_CONTEXT[id].set(true) };
     enable_local_irq_restore(level);
 }
 
@@ -55,9 +60,8 @@ pub(crate) extern "C" fn pend_switch_context() {
 pub(crate) extern "C" fn claim_switch_context() -> bool {
     let level = disable_local_irq_save();
     let id = current_cpu_id();
-    let ok = PENDING_SWITCH_CONTEXT[id]
-        .compare_exchange(true, false, Ordering::Acquire, Ordering::Relaxed)
-        .is_ok();
+    let ok = unsafe { PENDING_SWITCH_CONTEXT[id].get() };
+    unsafe { PENDING_SWITCH_CONTEXT[id].set(false) };
     enable_local_irq_restore(level);
     ok
 }
