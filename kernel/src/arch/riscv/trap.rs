@@ -168,13 +168,13 @@ extern "C" fn handle_switch(to_sp: usize, hook: Option<&mut ContextSwitchHookHol
     scheduler::save_context_finish_hook(hook);
     // Clear MPIE, since we assumes every thread should be resumed
     // with local irq enabled.
-    unsafe {
-        core::arch::asm!(
-            "csrs mstatus, {val}",
-            val = in(reg) super::MSTATUS_MPIE,
-            options(nostack),
-        )
-    }
+    //    unsafe {
+    //        core::arch::asm!(
+    //            "csrs mstatus, {val}",
+    //            val = in(reg) super::MSTATUS_MPIE,
+    //            options(nostack),
+    //        )
+    //    }
     to_sp
 }
 
@@ -216,7 +216,6 @@ extern "C" fn handle_ecall(ctx: &mut Context, cont: usize) -> usize {
     sp
 }
 
-#[inline(never)]
 fn might_switch_context(from: &Context, ra: usize) -> usize {
     let old_sp = from as *const _ as usize;
     if !claim_switch_context() {
@@ -246,11 +245,11 @@ extern "C" fn handle_trap(ctx: &mut Context, mcause: usize, mtval: usize, cont: 
         }
         ECALL => handle_ecall(ctx, cont),
         _ => {
-            let t = scheduler::current_thread();
+            let t = scheduler::current_thread_ref();
             panic!(
                 "[C#{}:0x{:x}] Unexpected trap: context: {:?}, mcause: 0x{:x}, mtval: 0x{:x}",
                 super::current_cpu_id(),
-                Thread::id(&t),
+                Thread::id(t),
                 ctx,
                 mcause,
                 mtval
