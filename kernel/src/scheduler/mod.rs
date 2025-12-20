@@ -14,7 +14,7 @@
 
 extern crate alloc;
 use crate::{
-    arch, signal,
+    arch, irq, signal,
     support::DisableInterruptGuard,
     sync::SpinLockGuard,
     thread,
@@ -337,9 +337,11 @@ fn yield_unconditionally() {
     let from_sp_ptr = old.saved_sp_ptr();
     let mut hook_holder = ContextSwitchHookHolder::new(next);
     hook_holder.set_prev_thread_target_state(thread::READY);
+    old.disable_preempt();
     old.start_context_switch();
     arch::switch_context_with_hook(from_sp_ptr as *mut u8, to_sp, &mut hook_holder as *mut _);
     debug_assert!(arch::local_irq_enabled());
+    old.enable_preempt();
 }
 
 pub fn relinquish_me() {
@@ -352,9 +354,11 @@ pub fn relinquish_me() {
     let from_sp_ptr = old.saved_sp_ptr();
     let mut hook_holder = ContextSwitchHookHolder::new(next);
     hook_holder.set_prev_thread_target_state(thread::READY);
+    old.disable_preempt();
     old.start_context_switch();
     arch::switch_context_with_hook(from_sp_ptr as *mut u8, to_sp, &mut hook_holder as *mut _);
     debug_assert!(arch::local_irq_enabled());
+    old.enable_preempt();
 }
 
 fn setup_timer(
@@ -405,9 +409,12 @@ pub(crate) fn suspend_me_with_hook(hook: impl FnOnce() + 'static) {
     let hook = Box::new(hook);
     hook_holder.set_prev_thread_target_state(thread::SUSPENDED);
     hook_holder.set_closure(hook);
+    old.disable_preempt();
     old.start_context_switch();
     arch::switch_context_with_hook(from_sp_ptr as *mut u8, to_sp, &mut hook_holder as *mut _);
     debug_assert!(arch::local_irq_enabled());
+    // Shall we put enable_preempt in save_context_finish_hook?
+    old.enable_preempt();
 }
 
 pub fn suspend_me_for(ticks: usize) {
@@ -424,9 +431,11 @@ pub fn suspend_me_for(ticks: usize) {
     if ticks != WAITING_FOREVER {
         setup_timer(&current_thread(), ticks, &mut hook_holder);
     }
+    old.disable_preempt();
     old.start_context_switch();
     arch::switch_context_with_hook(from_sp_ptr as *mut u8, to_sp, &mut hook_holder as *mut _);
     debug_assert!(arch::local_irq_enabled());
+    old.enable_preempt();
 }
 
 pub fn suspend_me_with_timeout(w: SpinLockGuard<'_, WaitQueue>, ticks: usize) -> bool {
@@ -466,10 +475,12 @@ pub fn suspend_me_with_timeout(w: SpinLockGuard<'_, WaitQueue>, ticks: usize) ->
     } else {
         Arc::new(AtomicBool::new(false))
     };
+    old.disable_preempt();
     old.start_context_switch();
     drop(w);
     arch::switch_context_with_hook(from_sp_ptr as *mut u8, to_sp, &mut hook_holder as *mut _);
     debug_assert!(arch::local_irq_enabled());
+    old.enable_preempt();
     timeout.load(Ordering::Acquire)
 }
 
@@ -479,6 +490,9 @@ pub fn suspend_me_with_timeout(w: SpinLockGuard<'_, WaitQueue>, ticks: usize) ->
 // perfectly meet this semantics.
 pub fn yield_me_now_or_later() {
     if unlikely(!is_schedule_ready()) {
+        return;
+    }
+    if current_thread_ref().preempt_count() != 0 {
         return;
     }
     arch::pend_switch_context();
@@ -565,7 +579,10 @@ fn set_current_thread(t: ThreadNode) -> ThreadNode {
     old
 }
 
+// Should never call this method in ISR, since we are unable to perform context
+// switch during execution of this method.
 pub(crate) fn spin_until_thread_finish_context_switch(t: &Thread) {
+    debug_assert!(!irq::is_in_irq());
     while t.is_switching_context() {
         core::hint::spin_loop();
     }
