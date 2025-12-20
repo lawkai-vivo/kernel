@@ -38,7 +38,7 @@ use core::{
     alloc::Layout,
     ops::Deref,
     ptr::NonNull,
-    sync::atomic::{AtomicI32, AtomicU32, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering},
 };
 
 mod builder;
@@ -194,6 +194,7 @@ pub struct Thread {
     // - Check mutex's pending queue
     acquired_mutexes: SpinLock<MutexList>,
     signal_context: Option<Box<SignalContext>>,
+    is_switching_context: AtomicBool,
 }
 
 extern "C" fn run_simple_c(f: extern "C" fn()) {
@@ -406,6 +407,7 @@ impl Thread {
             pending_on_mutex: ArcCas::new(None),
             acquired_mutexes: SpinLock::new(MutexList::new()),
             signal_context: None,
+            is_switching_context: AtomicBool::new(false),
         }
     }
 
@@ -713,6 +715,17 @@ impl Thread {
         }
         self.priority = target_priority;
         true
+    }
+
+    #[inline]
+    pub fn set_is_switching_context(&self, val: bool) -> &Self {
+        self.is_switching_context.store(val, Ordering::Release);
+        self
+    }
+
+    #[inline]
+    pub fn is_switching_context(&self) -> bool {
+        self.is_switching_context.load(Ordering::Acquire)
     }
 }
 
