@@ -62,6 +62,7 @@ pub fn wake_up(wq: &mut WaitQueue, how_many: usize) -> usize {
     let mut woken = 0;
     for entry in wq.iter() {
         let t = entry.thread.clone();
+        super::spin_until_thread_finish_context_switch(&t);
         if let Some(timer) = &t.timer {
             timer.stop();
         }
