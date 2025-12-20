@@ -317,23 +317,13 @@ pub fn yield_me() {
     // The scheduler assumes every thread should be resumed with local
     // irq enabled.
     debug_assert!(arch::local_irq_enabled());
-    let pg = thread::Thread::try_preempt_me();
-    if !pg.preemptable() {
-        arch::idle();
-        return;
-    }
-    drop(pg);
-    yield_unconditionally();
-}
-
-fn yield_unconditionally() {
-    debug_assert!(arch::local_irq_enabled());
     let Some(next) = next_ready_thread() else {
         arch::idle();
         return;
     };
     let to_sp = next.saved_sp();
     let old = current_thread_ref();
+    debug_assert_eq!(old.preempt_count(), 0);
     let from_sp_ptr = old.saved_sp_ptr();
     let mut hook_holder = ContextSwitchHookHolder::new(next);
     hook_holder.set_prev_thread_target_state(thread::READY);
@@ -347,6 +337,7 @@ fn yield_unconditionally() {
 pub fn relinquish_me() {
     debug_assert!(arch::local_irq_enabled());
     let old = current_thread_ref();
+    debug_assert_eq!(old.preempt_count(), 0);
     let Some(next) = next_preferred_thread(old.priority()) else {
         return;
     };
@@ -404,6 +395,7 @@ pub(crate) fn suspend_me_with_hook(hook: impl FnOnce() + 'static) {
     let next = next_ready_thread().map_or_else(idle::current_idle_thread, |v| v);
     let to_sp = next.saved_sp();
     let old = current_thread_ref();
+    debug_assert_eq!(old.preempt_count(), 0);
     let from_sp_ptr = old.saved_sp_ptr();
     let mut hook_holder = ContextSwitchHookHolder::new(next);
     let hook = Box::new(hook);
@@ -425,6 +417,7 @@ pub fn suspend_me_for(ticks: usize) {
     let next = next_ready_thread().map_or_else(idle::current_idle_thread, |v| v);
     let to_sp = next.saved_sp();
     let old = current_thread_ref();
+    debug_assert_eq!(old.preempt_count(), 0);
     let from_sp_ptr = old.saved_sp_ptr();
     let mut hook_holder = ContextSwitchHookHolder::new(next);
     hook_holder.set_prev_thread_target_state(thread::SUSPENDED);
@@ -457,6 +450,7 @@ pub fn suspend_me_with_timeout(w: SpinLockGuard<'_, WaitQueue>, ticks: usize) ->
     );
     let to_sp = next.saved_sp();
     let old = current_thread_ref();
+    debug_assert_eq!(old.preempt_count(), 0);
     let from_sp_ptr = old.saved_sp_ptr();
     // old's context saving must happen before old is requeued to
     // ready queue.
@@ -526,7 +520,7 @@ pub extern "C" fn schedule() -> ! {
     arch::enable_local_irq();
     debug_assert!(arch::local_irq_enabled());
     loop {
-        yield_unconditionally();
+        yield_me();
         idle::get_idle_hook()();
     }
 }
