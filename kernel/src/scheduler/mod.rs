@@ -201,7 +201,7 @@ pub(crate) extern "C" fn save_context_finish_hook(hook: Option<&mut ContextSwitc
         match hook.prev_thread_target_state {
             thread::READY => {
                 let ok = if Thread::id(&old) != Thread::id(idle::current_idle_thread_ref()) {
-                    queue_ready_thread(thread::RUNNING, old)
+                    queue_ready_thread(thread::RUNNING, old.clone())
                 } else {
                     // Idle thread should be never enqueued.
                     old.transfer_state(thread::RUNNING, thread::READY)
@@ -229,6 +229,7 @@ pub(crate) extern "C" fn save_context_finish_hook(hook: Option<&mut ContextSwitc
                 debug_assert!(ok);
             }
         }
+        old.finish_context_switch();
     }
     compiler_fence(Ordering::SeqCst);
     // Local irq is disabled by arch and the scheduler assumes every thread
@@ -355,6 +356,7 @@ fn yield_unconditionally() {
     let from_sp_ptr = old.saved_sp_ptr();
     let mut hook_holder = ContextSwitchHookHolder::new(next);
     hook_holder.set_prev_thread_target_state(thread::READY);
+    old.start_context_switch();
     arch::switch_context_with_hook(from_sp_ptr as *mut u8, to_sp, &mut hook_holder as *mut _);
     debug_assert!(arch::local_irq_enabled());
 }
@@ -369,6 +371,7 @@ pub fn relinquish_me() {
     let from_sp_ptr = old.saved_sp_ptr();
     let mut hook_holder = ContextSwitchHookHolder::new(next);
     hook_holder.set_prev_thread_target_state(thread::READY);
+    old.start_context_switch();
     arch::switch_context_with_hook(from_sp_ptr as *mut u8, to_sp, &mut hook_holder as *mut _);
     debug_assert!(arch::local_irq_enabled());
 }
@@ -426,6 +429,7 @@ pub(crate) fn suspend_me_with_hook(hook: impl FnOnce() + 'static) {
     let hook = Box::new(hook);
     hook_holder.set_prev_thread_target_state(thread::SUSPENDED);
     hook_holder.set_closure(hook);
+    old.start_context_switch();
     arch::switch_context_with_hook(from_sp_ptr as *mut u8, to_sp, &mut hook_holder as *mut _);
     debug_assert!(arch::local_irq_enabled());
 }
@@ -444,6 +448,7 @@ pub fn suspend_me_for(ticks: usize) {
     if ticks != WAITING_FOREVER {
         setup_timer(&current_thread(), ticks, &mut hook_holder);
     }
+    old.start_context_switch();
     arch::switch_context_with_hook(from_sp_ptr as *mut u8, to_sp, &mut hook_holder as *mut _);
     debug_assert!(arch::local_irq_enabled());
 }
@@ -488,6 +493,7 @@ pub fn suspend_me_with_timeout(mut w: SpinLockGuard<'_, WaitQueue>, ticks: usize
     } else {
         Arc::new(AtomicBool::new(false))
     };
+    old.start_context_switch();
     arch::switch_context_with_hook(from_sp_ptr as *mut u8, to_sp, &mut hook_holder as *mut _);
     debug_assert!(arch::local_irq_enabled());
     timeout.load(Ordering::Acquire)
@@ -583,4 +589,10 @@ fn set_current_thread(t: ThreadNode) -> ThreadNode {
     // Do not validate sp here, since we might be using system stack,
     // like on cortex-m platform.
     old
+}
+
+fn spin_until_thread_finish_context_switch(t: &Thread) {
+    while t.is_switching_context() {
+        core::hint::spin_loop();
+    }
 }

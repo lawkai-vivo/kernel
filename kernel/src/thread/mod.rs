@@ -718,8 +718,14 @@ impl Thread {
     }
 
     #[inline]
-    pub fn set_is_switching_context(&self, val: bool) -> &Self {
-        self.is_switching_context.store(val, Ordering::Release);
+    pub fn start_context_switch(&self) -> &Self {
+        self.is_switching_context.store(true, Ordering::Release);
+        self
+    }
+
+    #[inline]
+    pub fn finish_context_switch(&self) -> &Self {
+        self.is_switching_context.store(false, Ordering::Release);
         self
     }
 
