@@ -391,7 +391,7 @@ fn handle_svc_switch(ctx: &Context) -> usize {
             saved_sp_ptr.write_volatile(sp)
         };
     }
-    let hook: *mut ContextSwitchHookHolder = unsafe { ctx.r2 as *mut ContextSwitchHookHolder<'_> };
+    let hook: *mut ContextSwitchHookHolder = unsafe { ctx.r2 as *mut ContextSwitchHookHolder };
     if !hook.is_null() {
         unsafe {
             sideeffect();

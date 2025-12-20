@@ -103,27 +103,20 @@ pub(crate) fn init() {
     fifo::init();
 }
 
-pub(crate) struct ContextSwitchHookHolder<'a> {
+pub(crate) struct ContextSwitchHookHolder {
     // Next thread is a must.
     next_thread: Option<ThreadNode>,
     prev_thread_target_state: Uint,
     closure: Option<Box<dyn FnOnce()>>,
-    dropper: Option<DefaultWaitQueueGuardDropper<'a>>,
 }
 
-impl<'a> ContextSwitchHookHolder<'a> {
+impl ContextSwitchHookHolder {
     pub fn new(next_thread: ThreadNode) -> Self {
         Self {
             next_thread: Some(next_thread),
             closure: None,
-            dropper: None,
             prev_thread_target_state: thread::READY,
         }
-    }
-
-    pub fn set_dropper(&mut self, d: DefaultWaitQueueGuardDropper<'a>) -> &mut Self {
-        self.dropper = Some(d);
-        self
     }
 
     pub fn set_closure(&mut self, closure: Box<dyn FnOnce()>) -> &mut Self {
@@ -167,7 +160,6 @@ pub(crate) extern "C" fn save_context_finish_hook(hook: Option<&mut ContextSwitc
     // loading content from the Option, storing None into the Option also happens.
     let next = hook.next_thread.take();
     let closure = hook.closure.take();
-    let mut dropper = hook.dropper.take();
     compiler_fence(Ordering::SeqCst);
     let Some(mut next) = next else {
         panic!("Next thread must be specified!");
@@ -231,17 +223,6 @@ pub(crate) extern "C" fn save_context_finish_hook(hook: Option<&mut ContextSwitc
         }
         old.finish_context_switch();
     }
-    compiler_fence(Ordering::SeqCst);
-    // Local irq is disabled by arch and the scheduler assumes every thread
-    // should be resumed with local irq enabled. Alternative solution to handle
-    // irq status might be `save_context_finish_hook` taking an additional
-    // irq_status arg indicating the irq status when entered the context switch
-    // routine, and returning irq status indicating the irq status after leaving
-    // the context switch routine.
-    if let Some(v) = dropper.as_mut() {
-        v.forget_irq()
-    }
-    drop(dropper);
     compiler_fence(Ordering::SeqCst);
     if let Some(f) = closure {
         f()
@@ -453,7 +434,7 @@ pub fn suspend_me_for(ticks: usize) {
     debug_assert!(arch::local_irq_enabled());
 }
 
-pub fn suspend_me_with_timeout(mut w: SpinLockGuard<'_, WaitQueue>, ticks: usize) -> bool {
+pub fn suspend_me_with_timeout(w: SpinLockGuard<'_, WaitQueue>, ticks: usize) -> bool {
     debug_assert_ne!(ticks, 0);
     if unlikely(!is_schedule_ready()) {
         return false;
@@ -483,10 +464,7 @@ pub fn suspend_me_with_timeout(mut w: SpinLockGuard<'_, WaitQueue>, ticks: usize
     // inside a hook hodler and pass it by its
     // pointer. save_context_finish_hook is called during
     // switching context.
-    let mut dropper = DefaultWaitQueueGuardDropper::new();
-    dropper.add(w);
     let mut hook_holder = ContextSwitchHookHolder::new(next);
-    hook_holder.set_dropper(dropper);
     hook_holder.set_prev_thread_target_state(thread::SUSPENDED);
     let timeout = if ticks != WAITING_FOREVER {
         setup_timer(&current_thread(), ticks, &mut hook_holder)
@@ -494,6 +472,7 @@ pub fn suspend_me_with_timeout(mut w: SpinLockGuard<'_, WaitQueue>, ticks: usize
         Arc::new(AtomicBool::new(false))
     };
     old.start_context_switch();
+    drop(w);
     arch::switch_context_with_hook(from_sp_ptr as *mut u8, to_sp, &mut hook_holder as *mut _);
     debug_assert!(arch::local_irq_enabled());
     timeout.load(Ordering::Acquire)
@@ -591,7 +570,7 @@ fn set_current_thread(t: ThreadNode) -> ThreadNode {
     old
 }
 
-fn spin_until_thread_finish_context_switch(t: &Thread) {
+pub(crate) fn spin_until_thread_finish_context_switch(t: &Thread) {
     while t.is_switching_context() {
         core::hint::spin_loop();
     }
