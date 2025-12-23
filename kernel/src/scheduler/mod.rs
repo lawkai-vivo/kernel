@@ -105,6 +105,8 @@ pub(crate) fn init() {
 
 pub(crate) struct ContextSwitchHookHolder {
     // Next thread is a must.
+    // FIXME: We can use Arc::into_raw and Arc::from_raw to eliminate this
+    // Option, though unsafe.
     next_thread: Option<ThreadNode>,
     prev_thread_target_state: Uint,
     closure: Option<Box<dyn FnOnce()>>,
