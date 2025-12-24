@@ -196,7 +196,6 @@ pub struct Thread {
     // - Check mutex's pending queue
     acquired_mutexes: SpinLock<MutexList>,
     signal_context: Option<Box<SignalContext>>,
-    switching_to_state: AtomicUint,
 }
 
 extern "C" fn run_simple_c(f: extern "C" fn()) {
@@ -409,7 +408,6 @@ impl Thread {
             pending_on_mutex: ArcCas::new(None),
             acquired_mutexes: SpinLock::new(MutexList::new()),
             signal_context: None,
-            switching_to_state: AtomicUint::new(0),
         }
     }
 
