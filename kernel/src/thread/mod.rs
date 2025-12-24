@@ -156,7 +156,7 @@ pub struct Thread {
     kind: ThreadKind,
     // Thread owns Stack::Alloc. It calls dealloc when dropping its self.
     stack: Stack,
-    saved_sp: usize,
+    pub(crate) saved_sp: usize,
     // This value may change at runtime.
     priority: ThreadPriority,
     // This is the static priority of this thread.

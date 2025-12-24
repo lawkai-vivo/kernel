@@ -15,7 +15,7 @@
 pub(crate) mod irq;
 mod trap;
 
-use crate::{irq as sysirq, scheduler, scheduler::ContextSwitchHookHolder};
+use crate::{irq as sysirq, scheduler, scheduler::ContextSwitchHookHolder, thread::Thread};
 use blueos_kconfig::NUM_CORES;
 use core::{
     cell::Cell,
@@ -99,50 +99,6 @@ macro_rules! arch_bootstrap {
     }
 }
 
-#[cfg(target_pointer_width = "64")]
-#[macro_export]
-macro_rules! rv_save_context_prologue {
-    () => {
-        "
-        addi sp, sp, -{stack_size}
-        sd ra, {ra}(sp)
-        "
-    };
-}
-
-#[cfg(target_pointer_width = "32")]
-#[macro_export]
-macro_rules! rv_save_context_prologue {
-    () => {
-        "
-        addi sp, sp, -{stack_size}
-        sw ra, {ra}(sp)
-        "
-    };
-}
-
-#[cfg(target_pointer_width = "64")]
-#[macro_export]
-macro_rules! rv_restore_context_epilogue {
-    () => {
-        "
-        ld ra, {ra}(sp)
-        addi sp, sp, {stack_size}
-        "
-    };
-}
-
-#[cfg(target_pointer_width = "32")]
-#[macro_export]
-macro_rules! rv_restore_context_epilogue {
-    () => {
-        "
-        lw ra, {ra}(sp)
-        addi sp, sp, {stack_size}
-        "
-    };
-}
-
 macro_rules! clear_mstatus_mie {
     () => {
         "
@@ -155,166 +111,6 @@ macro_rules! set_mstatus_mie {
     () => {
         "
         csrsi mstatus, 0x8
-        "
-    };
-}
-
-#[cfg(target_pointer_width = "64")]
-#[macro_export]
-macro_rules! rv_restore_context {
-    () => {
-        "
-        ld t0, {mepc}(sp)
-        csrw  mepc, t0
-        ld gp, {gp}(sp)
-        ld tp, {tp}(sp)
-        ld t0, {t0}(sp)
-        ld t1, {t1}(sp)
-        ld t2, {t2}(sp)
-        ld t3, {t3}(sp)
-        ld t4, {t4}(sp)
-        ld t5, {t5}(sp)
-        ld t6, {t6}(sp)
-        ld a0, {a0}(sp)
-        ld a1, {a1}(sp)
-        ld a2, {a2}(sp)
-        ld a3, {a3}(sp)
-        ld a4, {a4}(sp)
-        ld a5, {a5}(sp)
-        ld a6, {a6}(sp)
-        ld a7, {a7}(sp)
-        ld fp, {fp}(sp)
-        ld s1, {s1}(sp)
-        ld s2, {s2}(sp)
-        ld s3, {s3}(sp)
-        ld s4, {s4}(sp)
-        ld s5, {s5}(sp)
-        ld s6, {s6}(sp)
-        ld s7, {s7}(sp)
-        ld s8, {s8}(sp)
-        ld s9, {s9}(sp)
-        ld s10, {s10}(sp)
-        ld s11, {s11}(sp)
-        "
-    };
-}
-
-#[cfg(target_pointer_width = "32")]
-#[macro_export]
-macro_rules! rv_restore_context {
-    () => {
-        "
-        lw t0, {mepc}(sp)
-        csrw  mepc, t0
-        lw gp, {gp}(sp)
-        lw tp, {tp}(sp)
-        lw t0, {t0}(sp)
-        lw t1, {t1}(sp)
-        lw t2, {t2}(sp)
-        lw t3, {t3}(sp)
-        lw t4, {t4}(sp)
-        lw t5, {t5}(sp)
-        lw t6, {t6}(sp)
-        lw a0, {a0}(sp)
-        lw a1, {a1}(sp)
-        lw a2, {a2}(sp)
-        lw a3, {a3}(sp)
-        lw a4, {a4}(sp)
-        lw a5, {a5}(sp)
-        lw a6, {a6}(sp)
-        lw a7, {a7}(sp)
-        lw fp, {fp}(sp)
-        lw s1, {s1}(sp)
-        lw s2, {s2}(sp)
-        lw s3, {s3}(sp)
-        lw s4, {s4}(sp)
-        lw s5, {s5}(sp)
-        lw s6, {s6}(sp)
-        lw s7, {s7}(sp)
-        lw s8, {s8}(sp)
-        lw s9, {s9}(sp)
-        lw s10, {s10}(sp)
-        lw s11, {s11}(sp)
-        "
-    };
-}
-
-#[cfg(target_pointer_width = "64")]
-#[macro_export]
-macro_rules! rv_save_context {
-    () => {
-        "
-        sd gp, {gp}(sp)
-        sd tp, {tp}(sp)
-        sd t0, {t0}(sp)
-        sd t1, {t1}(sp)
-        sd t2, {t2}(sp)
-        sd t3, {t3}(sp)
-        sd t4, {t4}(sp)
-        sd t5, {t5}(sp)
-        sd t6, {t6}(sp)
-        sd a0, {a0}(sp)
-        sd a1, {a1}(sp)
-        sd a2, {a2}(sp)
-        sd a3, {a3}(sp)
-        sd a4, {a4}(sp)
-        sd a5, {a5}(sp)
-        sd a6, {a6}(sp)
-        sd a7, {a7}(sp)
-        sd fp, {fp}(sp)
-        sd s1, {s1}(sp)
-        sd s2, {s2}(sp)
-        sd s3, {s3}(sp)
-        sd s4, {s4}(sp)
-        sd s5, {s5}(sp)
-        sd s6, {s6}(sp)
-        sd s7, {s7}(sp)
-        sd s8, {s8}(sp)
-        sd s9, {s9}(sp)
-        sd s10, {s10}(sp)
-        sd s11, {s11}(sp)
-        csrr t0, mepc
-        sd t0, {mepc}(sp)
-        "
-    };
-}
-
-#[cfg(target_pointer_width = "32")]
-#[macro_export]
-macro_rules! rv_save_context {
-    () => {
-        "
-        sw gp, {gp}(sp)
-        sw tp, {tp}(sp)
-        sw t0, {t0}(sp)
-        sw t1, {t1}(sp)
-        sw t2, {t2}(sp)
-        sw t3, {t3}(sp)
-        sw t4, {t4}(sp)
-        sw t5, {t5}(sp)
-        sw t6, {t6}(sp)
-        sw a0, {a0}(sp)
-        sw a1, {a1}(sp)
-        sw a2, {a2}(sp)
-        sw a3, {a3}(sp)
-        sw a4, {a4}(sp)
-        sw a5, {a5}(sp)
-        sw a6, {a6}(sp)
-        sw a7, {a7}(sp)
-        sw fp, {fp}(sp)
-        sw s1, {s1}(sp)
-        sw s2, {s2}(sp)
-        sw s3, {s3}(sp)
-        sw s4, {s4}(sp)
-        sw s5, {s5}(sp)
-        sw s6, {s6}(sp)
-        sw s7, {s7}(sp)
-        sw s8, {s8}(sp)
-        sw s9, {s9}(sp)
-        sw s10, {s10}(sp)
-        sw s11, {s11}(sp)
-        csrr t0, mepc
-        sw t0, {mepc}(sp)
         "
     };
 }
@@ -410,30 +206,15 @@ pub(crate) extern "C" fn restore_context_with_hook(
 
 // This context is used when we are performing context switching in
 // thread mode or in the first level ISR.
+// TODO: Add floating point registers.
 #[cfg_attr(target_pointer_width = "64", repr(C, align(16)))]
 #[cfg_attr(target_pointer_width = "32", repr(C, align(8)))]
 #[derive(Default, Debug)]
 pub(crate) struct Context {
     pub ra: usize,
-    pub mepc: usize,
     pub gp: usize,
     pub tp: usize,
-    pub t0: usize,
-    pub t1: usize,
-    pub t2: usize,
     pub fp: usize,
-    pub a0: usize,
-    pub a1: usize,
-    pub a2: usize,
-    pub a3: usize,
-    pub a4: usize,
-    pub a5: usize,
-    pub a6: usize,
-    pub a7: usize,
-    pub t3: usize,
-    pub t4: usize,
-    pub t5: usize,
-    pub t6: usize,
     pub s1: usize,
     pub s2: usize,
     pub s3: usize,
@@ -445,20 +226,37 @@ pub(crate) struct Context {
     pub s9: usize,
     pub s10: usize,
     pub s11: usize,
-    // So that it's 16-byte aligned.
+    pub mepc: usize,
+    pub mcause: usize,
+    pub mtval: usize,
+    pub mstatus: usize,
     pub padding: usize,
 }
 
-#[repr(C, align(16))]
+#[cfg_attr(target_pointer_width = "64", repr(C, align(16)))]
+#[cfg_attr(target_pointer_width = "32", repr(C, align(8)))]
 #[derive(Default, Debug)]
 pub(crate) struct IsrContext {
-    pub mstatus: usize,
-    pub mcause: usize,
-    pub mtval: usize,
-    pub mepc: usize,
+    // We're not allowing nested ISR at the moment.
+    pub ra: usize,
+    pub t0: usize,
+    pub t1: usize,
+    pub t2: usize,
+    pub t3: usize,
+    pub t4: usize,
+    pub t5: usize,
+    pub t6: usize,
+    pub a0: usize,
+    pub a1: usize,
+    pub a2: usize,
+    pub a3: usize,
+    pub a4: usize,
+    pub a5: usize,
+    pub a6: usize,
+    pub a7: usize,
 }
 
-impl Context {
+impl IsrContext {
     #[inline]
     pub(crate) fn init(&mut self) -> &mut Self {
         self
@@ -468,7 +266,7 @@ impl Context {
     // FIXME: rustc miscompiles it if inlined.
     #[inline(never)]
     pub(crate) fn set_return_address(&mut self, pc: usize) -> &mut Self {
-        self.mepc = pc;
+        self.ra = pc;
         self
     }
 
@@ -540,6 +338,187 @@ pub(crate) extern "C" fn switch_stack(
             mv sp, a0
             jalr x0, t0, 0
             "
+        )
+    }
+}
+
+#[cfg(target_pointer_width = "32")]
+#[macro_export]
+macro_rules! rv_save_context {
+    () => {
+        "
+        sw ra, {ra}({base})
+        sw gp, {gp}({base})
+        sw tp, {tp}({base})
+        sw fp, {fp}({base})
+        sw s1, {s1}({base})
+        sw s2, {s2}({base})
+        sw s3, {s3}({base})
+        sw s4, {s4}({base})
+        sw s5, {s5}({base})
+        sw s6, {s6}({base})
+        sw s7, {s7}({base})
+        sw s8, {s8}({base})
+        sw s9, {s9}({base})
+        sw s10, {s10}({base})
+        sw s11, {s11}({base})
+        csrr s1, mepc
+        csrr s2, mstatus
+        csrr s3, mcause
+        csrr s3, mtval
+        sw s1, {mepc}({base})
+        sw s2, {mstatus}({base})
+        sw s3, {mcause}({base})
+        sw s4, {mtval}({base})
+        "
+    };
+}
+
+#[cfg(target_pointer_width = "64")]
+#[macro_export]
+macro_rules! rv_save_context {
+    () => {
+        "
+        sd ra, {ra}({base})
+        sd gp, {gp}({base})
+        sd tp, {tp}({base})
+        sd fp, {fp}({base})
+        sd s1, {s1}({base})
+        sd s2, {s2}({base})
+        sd s3, {s3}({base})
+        sd s4, {s4}({base})
+        sd s5, {s5}({base})
+        sd s6, {s6}({base})
+        sd s7, {s7}({base})
+        sd s8, {s8}({base})
+        sd s9, {s9}({base})
+        sd s10, {s10}({base})
+        sd s11, {s11}({base})
+        csrr s1, mepc
+        csrr s2, mstatus
+        csrr s3, mcause
+        csrr s3, mtval
+        sd s1, {mepc}({base})
+        sd s2, {mstatus}({base})
+        sd s3, {mcause}({base})
+        sd s4, {mtval}({base})
+        "
+    };
+}
+
+#[cfg(target_pointer_width = "32")]
+#[macro_export]
+macro_rules! rv_restore_context {
+    () => {
+        "
+        lw s1, {mepc}({base})
+        lw s2, {mstatus}({base})
+        lw s3, {mcause}({base})
+        lw s4, {mtval}({base})
+        csrw mepc, s1
+        csrw mstatus, s2
+        csrw mcause, s3
+        csrw mtval, s4
+        lw ra, {ra}({base})
+        lw gp, {gp}({base})
+        lw tp, {tp}({base})
+        lw fp, {fp}({base})
+        lw s1, {s1}({base})
+        lw s2, {s2}({base})
+        lw s3, {s3}({base})
+        lw s4, {s4}({base})
+        lw s5, {s5}({base})
+        lw s6, {s6}({base})
+        lw s7, {s7}({base})
+        lw s8, {s8}({base})
+        lw s9, {s9}({base})
+        lw s10, {s10}({base})
+        lw s11, {s11}({base})
+        "
+    };
+}
+
+#[cfg(target_pointer_width = "64")]
+#[macro_export]
+macro_rules! rv_restore_context {
+    () => {
+        "
+        ld s1, {mepc}({base})
+        ld s2, {mstatus}({base})
+        ld s3, {mcause}({base})
+        ld s4, {mtval}({base})
+        csrw mepc, s1
+        csrw mstatus, s2
+        csrw mcause, s3
+        csrw mtval, s4
+        ld ra, {ra}({base})
+        ld gp, {gp}({base})
+        ld tp, {tp}({base})
+        ld fp, {fp}({base})
+        ld s1, {s1}({base})
+        ld s2, {s2}({base})
+        ld s3, {s3}({base})
+        ld s4, {s4}({base})
+        ld s5, {s5}({base})
+        ld s6, {s6}({base})
+        ld s7, {s7}({base})
+        ld s8, {s8}({base})
+        ld s9, {s9}({base})
+        ld s10, {s10}({base})
+        ld s11, {s11}({base})
+        "
+    };
+}
+
+#[naked]
+extern "C" fn switch(
+    hook: &mut ContextSwitchHookHolder,
+    prev: *const Thread,
+    next: *const Thread,
+) -> &mut ContextSwitchHookHolder {
+    unsafe {
+        core::arch::naked_asm!(
+            "
+            addi sp, sp, -{ctx_size},
+            ",
+            rv_save_context!(),
+            #[cfg(target_pointer_width = "32")]
+            "
+            sw sp, {saved_sp}(a1),
+            lw sp, {saved_sp}(a2),
+            ",
+            #[cfg(target_pointer_width = "64")]
+            "
+            sd sp, {saved_sp}(a1),
+            ld sp, {saved_sp}(a2),
+            ",
+            rv_restore_context!(),
+            "
+            addi sp, sp, {ctx_size},
+            ret
+            ",
+            base = in("sp"),
+            saved_sp = const offset_of!(Thread, saved_sp),
+            ctx_size = const core::mem::size_of::<Context>(),
+            mepc = const offset_of!(Context, mepc),
+            mstatus = const offset_of!(Context, mstatus),
+            mcause = const offset_of!(Context, mcause),
+            mtval = const offset_of!(Context, mtval),
+            ra = const offset_of!(Context, ra),
+            gp = const offset_of!(Context, gp),
+            tp = const offset_of!(Context, tp),
+            fp = const offset_of!(Context, fp),
+            s1 = const offset_of!(Context, s1),
+            s2 = const offset_of!(Context, s2),
+            s3 = const offset_of!(Context, s3),
+            s4 = const offset_of!(Context, s4),
+            s5 = const offset_of!(Context, s5),
+            s6 = const offset_of!(Context, s6),
+            s7 = const offset_of!(Context, s7),
+            s8 = const offset_of!(Context, s8),
+            s9 = const offset_of!(Context, s9),
+            s10 = const offset_of!(Context, s10),
+            s11 = const offset_of!(Context, s11),
         )
     }
 }
