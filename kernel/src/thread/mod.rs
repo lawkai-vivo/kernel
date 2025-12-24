@@ -38,7 +38,7 @@ use core::{
     alloc::Layout,
     ops::Deref,
     ptr::NonNull,
-    sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering},
+    sync::atomic::{AtomicI32, Ordering},
 };
 
 mod builder;
@@ -161,6 +161,8 @@ pub struct Thread {
     priority: ThreadPriority,
     // This is the static priority of this thread.
     origin_priority: ThreadPriority,
+    // When the MSB is 1, the thread is perform context switch, the remaining
+    // bits represent the target state after the context is saved.
     state: AtomicUint,
     preempt_count: AtomicUint,
     #[cfg(robin_scheduler)]
@@ -194,7 +196,7 @@ pub struct Thread {
     // - Check mutex's pending queue
     acquired_mutexes: SpinLock<MutexList>,
     signal_context: Option<Box<SignalContext>>,
-    is_switching_context: AtomicBool,
+    switching_to_state: AtomicUint,
 }
 
 extern "C" fn run_simple_c(f: extern "C" fn()) {
@@ -407,7 +409,7 @@ impl Thread {
             pending_on_mutex: ArcCas::new(None),
             acquired_mutexes: SpinLock::new(MutexList::new()),
             signal_context: None,
-            is_switching_context: AtomicBool::new(false),
+            switching_to_state: AtomicUint::new(0),
         }
     }
 
@@ -718,20 +720,34 @@ impl Thread {
     }
 
     #[inline]
-    pub fn start_context_switch(&self) -> &Self {
-        self.is_switching_context.store(true, Ordering::Release);
+    pub fn switching_state(state: Uint) -> Uint {
+        1 << (Uint::BITS - 1) | state
+    }
+
+    #[inline]
+    pub fn start_context_switch(&self, state: Uint) -> &Self {
+        let val = 1 << (Uint::BITS - 1) | state;
+        let old = self.state.swap(val, Ordering::Release);
+        debug_assert_eq!(old, RUNNING);
         self
     }
 
     #[inline]
-    pub fn finish_context_switch(&self) -> &Self {
-        self.is_switching_context.store(false, Ordering::Release);
-        self
+    pub fn state_switching_to(&self) -> Uint {
+        let val = self.state.load(Ordering::Relaxed);
+        val & !(1 << (Uint::BITS - 1))
+    }
+
+    #[inline]
+    pub fn clear_switching_state(&self) -> Uint {
+        self.state
+            .fetch_and(!(1 << (Uint::BITS - 1)), Ordering::Release)
     }
 
     #[inline]
     pub fn is_switching_context(&self) -> bool {
-        self.is_switching_context.load(Ordering::Acquire)
+        let val = self.state.load(Ordering::Acquire);
+        (val & (1 << (Uint::BITS - 1))) != 0
     }
 }
 
