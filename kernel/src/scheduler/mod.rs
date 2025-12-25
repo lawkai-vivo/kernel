@@ -158,13 +158,13 @@ pub(crate) extern "C" fn save_context_finish_hook(hook: Option<&mut ContextSwitc
     {
         let ok = next.transfer_state(thread::READY, thread::RUNNING);
         debug_assert!(ok);
-        // FIXME: Statistics of cycles should be optional.
-        let cycles = time::get_sys_cycles();
-        next.lock().set_start_cycles(cycles);
-        // FIXME: Signal feature should be optional.
-        if next.lock().has_pending_signals() {
-            prepare_signal_handling(&next);
-        }
+        //        // FIXME: Statistics of cycles should be optional.
+        //        let cycles = time::get_sys_cycles();
+        //        next.lock().set_start_cycles(cycles);
+        //        // FIXME: Signal feature should be optional.
+        //        if next.lock().has_pending_signals() {
+        //            prepare_signal_handling(&next);
+        //        }
         let next_id = Thread::id(&next);
         let next_saved_sp = next.saved_sp();
         let next_priority = next.priority();
@@ -224,9 +224,9 @@ fn switch_current_thread(old_sp: usize, next: ThreadNode) -> usize {
     let next_id = Thread::id(&next);
     let next_saved_sp = next.saved_sp();
     let next_priority = next.priority();
-    // FIXME: Statistics of cycles should be optional.
-    let cycles = time::get_sys_cycles();
-    next.lock().set_start_cycles(cycles);
+    //    // FIXME: Statistics of cycles should be optional.
+    //    let cycles = time::get_sys_cycles();
+    //    next.lock().set_start_cycles(cycles);
     let old = set_current_thread(next);
     #[cfg(debugging_scheduler)]
     crate::trace!(
@@ -242,7 +242,7 @@ fn switch_current_thread(old_sp: usize, next: ThreadNode) -> usize {
     {
         let mut old_lock = old.lock();
         // FIXME: Statistics of cycles should be optional.
-        old_lock.increment_cycles(cycles);
+        // old_lock.increment_cycles(cycles);
         old_lock.set_saved_sp(old_sp);
     }
 
