@@ -12,16 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub(crate) mod irq;
-mod trap;
+pub mod irq;
+pub mod trap;
 
-use crate::{irq as sysirq, scheduler, scheduler::ContextSwitchHookHolder};
+use crate::{arch::Arch, irq as sysirq, scheduler, scheduler::ContextSwitchHookHolder};
 use core::{
     cell::Cell,
     mem::offset_of,
     sync::atomic::{compiler_fence, Ordering},
 };
-pub use trap::*;
 
 pub(crate) const NR_SWITCH: usize = !0;
 const NUM_CORES: usize = blueos_kconfig::CONFIG_NUM_CORES as usize;
@@ -43,38 +42,6 @@ pub(crate) const MIE_MEIE: usize = 1 << 11;
 // FIXME: We don't need atomic here.
 static mut PENDING_SWITCH_CONTEXT: [Cell<bool>; NUM_CORES] =
     [const { Cell::new(false) }; NUM_CORES];
-
-#[inline]
-pub(crate) extern "C" fn pend_switch_context() {
-    if !sysirq::is_in_irq() {
-        scheduler::relinquish_me();
-        return;
-    }
-    let level = disable_local_irq_save();
-    let id = current_cpu_id();
-    unsafe { PENDING_SWITCH_CONTEXT[id].set(true) };
-    enable_local_irq_restore(level);
-}
-
-#[inline]
-pub(crate) extern "C" fn claim_switch_context() -> bool {
-    let level = disable_local_irq_save();
-    let id = current_cpu_id();
-    let ok = unsafe { PENDING_SWITCH_CONTEXT[id].get() };
-    unsafe { PENDING_SWITCH_CONTEXT[id].set(false) };
-    enable_local_irq_restore(level);
-    ok
-}
-
-#[inline]
-pub(crate) extern "C" fn local_irq_enabled() -> bool {
-    let x: usize;
-    unsafe {
-        core::arch::asm!("csrr {}, mstatus", out(reg) x,
-                         options(nostack))
-    };
-    x & MSTATUS_MIE != 0
-}
 
 #[macro_export]
 macro_rules! arch_bootstrap {
@@ -318,53 +285,6 @@ macro_rules! rv_save_context {
     };
 }
 
-#[inline]
-pub(crate) extern "C" fn disable_local_irq() {
-    compiler_fence(Ordering::SeqCst);
-    unsafe { core::arch::asm!(clear_mstatus_mie!(), options(nostack)) };
-}
-
-#[inline]
-pub(crate) extern "C" fn enable_local_irq() {
-    unsafe { core::arch::asm!(set_mstatus_mie!(), options(nostack)) };
-    compiler_fence(Ordering::SeqCst);
-}
-
-#[inline]
-pub(crate) extern "C" fn idle() {
-    unsafe { core::arch::asm!("wfi", options(nostack)) };
-}
-
-#[inline]
-pub(crate) extern "C" fn disable_local_irq_save() -> usize {
-    compiler_fence(Ordering::SeqCst);
-    let old: usize;
-    unsafe {
-        core::arch::asm!("csrrci {old}, mstatus, {bit}",
-                         bit = const MSTATUS_MIE,
-                         old = out(reg) old,
-                         options(nostack),
-        )
-    };
-    old
-}
-
-#[inline]
-pub(crate) extern "C" fn enable_local_irq_restore(old: usize) {
-    unsafe {
-        core::arch::asm!("csrw mstatus, {old}", old = in(reg) old,
-                         options(nostack))
-    };
-    compiler_fence(Ordering::SeqCst);
-}
-
-#[inline]
-pub extern "C" fn current_sp() -> usize {
-    let x: usize;
-    unsafe { core::arch::asm!("mv {}, sp", out(reg) x, options(nostack, nomem)) };
-    x
-}
-
 pub(crate) extern "C" fn ecall_switch_context_with_hook(hook: *mut ContextSwitchHookHolder) {
     unsafe {
         core::arch::asm!(
@@ -377,14 +297,9 @@ pub(crate) extern "C" fn ecall_switch_context_with_hook(hook: *mut ContextSwitch
 }
 
 #[inline(always)]
-pub(crate) extern "C" fn switch_context_with_hook(hook: *mut ContextSwitchHookHolder) {
-    ecall_switch_context_with_hook(hook)
-}
-
-#[inline(always)]
 #[allow(clippy::empty_loop)]
 pub(crate) extern "C" fn restore_context_with_hook(hook: *mut ContextSwitchHookHolder) -> ! {
-    switch_context_with_hook(hook);
+    ecall_switch_context_with_hook(hook);
     unreachable!("Should have switched to another thread");
 }
 
@@ -393,7 +308,7 @@ pub(crate) extern "C" fn restore_context_with_hook(hook: *mut ContextSwitchHookH
 #[cfg_attr(target_pointer_width = "64", repr(C, align(16)))]
 #[cfg_attr(target_pointer_width = "32", repr(C, align(8)))]
 #[derive(Default, Debug)]
-pub(crate) struct Context {
+pub struct Context {
     pub ra: usize,
     pub mepc: usize,
     pub gp: usize,
@@ -481,45 +396,124 @@ pub(crate) extern "C" fn bootstrap() {
     };
 }
 
-pub(crate) extern "C" fn start_schedule(cont: extern "C" fn() -> !) {
-    let current = crate::scheduler::current_thread_ref();
-    current.lock().reset_saved_sp();
-    let sp = current.saved_sp();
-    unsafe {
-        core::arch::asm!(
-            "li ra, 0",
-            "mv sp, {sp}",
-            "jalr x0, {cont}, 0",
-            sp = in(reg) sp,
-            cont = in(reg) cont,
-            options(noreturn),
-        )
+pub struct ArchImpl;
+
+impl Arch for ArchImpl {
+    extern "C" fn pend_context_switch() {
+        if !sysirq::is_in_irq() {
+            scheduler::relinquish_me();
+            return;
+        }
+        let level = Self::disable_local_irq_save();
+        let id = Self::current_cpu_id();
+        unsafe { PENDING_SWITCH_CONTEXT[id].set(true) };
+        Self::enable_local_irq_restore(level);
     }
-}
 
-#[inline(always)]
-pub(crate) extern "C" fn current_cpu_id() -> usize {
-    let id: usize;
-    unsafe {
-        core::arch::asm!("csrr {}, mhartid", out(reg) id,
-                              options(nostack))
-    };
-    id
-}
+    extern "C" fn claim_context_switch() -> bool {
+        let level = Self::disable_local_irq_save();
+        let id = Self::current_cpu_id();
+        let ok = unsafe { PENDING_SWITCH_CONTEXT[id].get() };
+        unsafe { PENDING_SWITCH_CONTEXT[id].set(false) };
+        Self::enable_local_irq_restore(level);
+        ok
+    }
 
-#[naked]
-pub(crate) extern "C" fn switch_stack(
-    to_sp: usize,
-    cont: extern "C" fn(sp: usize, old_sp: usize),
-) -> ! {
-    unsafe {
-        core::arch::naked_asm!(
-            "
+    extern "C" fn local_irq_enabled() -> bool {
+        let x: usize;
+        unsafe {
+            core::arch::asm!("csrr {}, mstatus", out(reg) x,
+                         options(nostack))
+        };
+        x & MSTATUS_MIE != 0
+    }
+
+    extern "C" fn disable_local_irq() {
+        compiler_fence(Ordering::SeqCst);
+        unsafe { core::arch::asm!(clear_mstatus_mie!(), options(nostack)) };
+    }
+
+    extern "C" fn enable_local_irq() {
+        unsafe { core::arch::asm!(set_mstatus_mie!(), options(nostack)) };
+        compiler_fence(Ordering::SeqCst);
+    }
+
+    extern "C" fn idle() {
+        unsafe { core::arch::asm!("wfi", options(nostack)) };
+    }
+
+    extern "C" fn disable_local_irq_save() -> usize {
+        compiler_fence(Ordering::SeqCst);
+        let old: usize;
+        unsafe {
+            core::arch::asm!("csrrci {old}, mstatus, {bit}",
+                             bit = const MSTATUS_MIE,
+                             old = out(reg) old,
+                             options(nostack),
+            )
+        };
+        old
+    }
+
+    extern "C" fn enable_local_irq_restore(old: usize) {
+        unsafe {
+            core::arch::asm!("csrw mstatus, {old}", old = in(reg) old,
+                         options(nostack))
+        };
+        compiler_fence(Ordering::SeqCst);
+    }
+
+    extern "C" fn current_sp() -> usize {
+        let x: usize;
+        unsafe { core::arch::asm!("mv {}, sp", out(reg) x, options(nostack, nomem)) };
+        x
+    }
+
+    extern "C" fn switch_context_with_hook(hook: *mut ContextSwitchHookHolder) {
+        ecall_switch_context_with_hook(hook)
+    }
+
+    #[naked]
+    extern "C" fn switch_stack(
+        to_sp: usize,
+        cont: extern "C" fn(to_sp: usize, from_sp: usize),
+        ra: usize,
+    ) -> ! {
+        unsafe {
+            core::arch::naked_asm!(
+                "
             mv t0, a1
             mv a1, sp
             mv sp, a0
+            mv ra, a2
             jalr x0, t0, 0
             "
-        )
+            )
+        }
+    }
+
+    extern "C" fn start_schedule(cont: extern "C" fn() -> !) {
+        let current = crate::scheduler::current_thread_ref();
+        current.lock().reset_saved_sp();
+        let sp = current.saved_sp();
+        unsafe {
+            core::arch::asm!(
+                "li ra, 0",
+                "mv sp, {sp}",
+                "jalr x0, {cont}, 0",
+                sp = in(reg) sp,
+                cont = in(reg) cont,
+                options(noreturn),
+            )
+        }
+    }
+
+    extern "C" fn current_cpu_id() -> usize {
+        let id: usize;
+        unsafe {
+            core::arch::asm!("csrr {}, mhartid", out(reg) id,
+                              options(nostack))
+        };
+        id
     }
 }

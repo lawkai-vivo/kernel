@@ -98,12 +98,12 @@ macro_rules! trace {
         let l = $crate::TRACER.lock();
         #[cfg(target_pointer_width="32")]
         semihosting::eprint!("[C:{:02} SP:0x{:08x}] ",
-                             $crate::arch::current_cpu_id(),
-                             $crate::arch::current_sp());
+                             $crate::arch::ArchImpl::current_cpu_id(),
+                             $crate::arch::ArchImpl::current_sp());
         #[cfg(target_pointer_width="64")]
         semihosting::eprint!("[C:{:02} SP:0x{:016x}] ",
-                             $crate::arch::current_cpu_id(),
-                             $crate::arch::current_sp());
+                             $crate::arch::ArchImpl::current_cpu_id(),
+                             $crate::arch::ArchImpl::current_sp());
         semihosting::eprintln!($($tt)*);
         drop(l);
         drop(dig);
@@ -115,8 +115,15 @@ mod tests {
     extern crate alloc;
     use super::*;
     use crate::{
-        allocator, allocator::KernelAllocator, config, support::DisableInterruptGuard, sync,
-        sync::ConstBarrier, time::WAITING_FOREVER, types::Arc,
+        allocator,
+        allocator::KernelAllocator,
+        arch::{Arch, ArchImpl},
+        config,
+        support::DisableInterruptGuard,
+        sync,
+        sync::ConstBarrier,
+        time::WAITING_FOREVER,
+        types::Arc,
     };
     use alloc::vec::Vec;
     use blueos_header::syscalls::NR::Nop;
@@ -286,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_local_irq() {
-        assert!(arch::local_irq_enabled());
+        assert!(ArchImpl::local_irq_enabled());
     }
 
     #[test]
@@ -620,7 +627,7 @@ mod tests {
             Thread::id(&t),
             ThreadNode::strong_count(&t),
             defmt::Debug2Format(&allocator::memory_info()),
-            arch::current_sp(),
+            ArchImpl::current_sp(),
         );
         #[cfg(not(use_defmt))]
         println!(
@@ -628,7 +635,7 @@ mod tests {
             Thread::id(&t),
             ThreadNode::strong_count(&t),
             allocator::memory_info(),
-            arch::current_sp(),
+            ArchImpl::current_sp(),
         );
         for test in tests {
             test();
@@ -638,14 +645,14 @@ mod tests {
             "After test, thread 0x{:x}, heap status: {:?}, sp: 0x{:x}",
             Thread::id(&t),
             defmt::Debug2Format(&allocator::memory_info()),
-            arch::current_sp()
+            ArchImpl::current_sp()
         );
         #[cfg(not(use_defmt))]
         println!(
             "After test, thread 0x{:x}, heap status: {:?}, sp:  0x{:x}",
             Thread::id(&t),
             allocator::memory_info(),
-            arch::current_sp()
+            ArchImpl::current_sp()
         );
         println!("---- Done kernel unittests.");
         #[cfg(coverage)]

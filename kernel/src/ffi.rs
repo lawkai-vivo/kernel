@@ -12,19 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::allocator;
+use crate::{allocator, arch::Arch};
 use core::ffi::c_int;
 
 #[coverage(off)]
 #[no_mangle]
 pub extern "C" fn disable_local_irq_save() -> usize {
-    crate::arch::disable_local_irq_save()
+    crate::arch::ArchImpl::disable_local_irq_save()
 }
 
 #[coverage(off)]
 #[no_mangle]
 pub extern "C" fn enable_local_irq_restore(val: usize) {
-    crate::arch::enable_local_irq_restore(val)
+    crate::arch::ArchImpl::enable_local_irq_restore(val)
 }
 
 #[coverage(off)]

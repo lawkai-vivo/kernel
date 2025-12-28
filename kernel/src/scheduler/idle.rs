@@ -15,6 +15,7 @@
 extern crate alloc;
 use crate::{
     arch,
+    arch::Arch,
     config::MAX_THREAD_PRIORITY,
     scheduler::RUNNING_THREADS,
     support,
@@ -45,7 +46,7 @@ pub(crate) fn get_idle_hook() -> IdleHook {
     if let Some(hook) = unsafe { IDLE_HOOK } {
         hook
     } else {
-        arch::idle
+        arch::ArchImpl::idle
     }
 }
 
@@ -76,14 +77,14 @@ pub(super) fn init_idle_threads() {
 #[inline]
 pub fn current_idle_thread_ref() -> &'static Thread {
     let _dig = support::DisableInterruptGuard::new();
-    let id = arch::current_cpu_id();
+    let id = arch::ArchImpl::current_cpu_id();
     unsafe { IDLE_THREADS[id].assume_init_ref() }
 }
 
 #[inline]
 pub fn current_idle_thread() -> ThreadNode {
     let _dig = support::DisableInterruptGuard::new();
-    let id = arch::current_cpu_id();
+    let id = arch::ArchImpl::current_cpu_id();
     unsafe { IDLE_THREADS[id].assume_init_ref() }.clone()
 }
 

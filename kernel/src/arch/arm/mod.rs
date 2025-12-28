@@ -16,19 +16,19 @@ pub(crate) mod hardfault;
 pub mod irq;
 pub(crate) mod xpsr;
 use crate::{
+    arch::Arch,
     scheduler,
     support::{sideeffect, Region, RegionalObjectBuilder},
     syscalls::{dispatch_syscall, Context as ScContext},
 };
-pub(crate) use hardfault::handle_hardfault;
-pub use hardfault::panic_on_hardfault;
-
 use core::{
     fmt,
     mem::offset_of,
     sync::{atomic, atomic::Ordering},
 };
 use cortex_m::peripheral::SCB;
+pub(crate) use hardfault::handle_hardfault;
+pub use hardfault::panic_on_hardfault;
 use scheduler::ContextSwitchHookHolder;
 
 pub const EXCEPTION_LR: usize = 0xFFFFFFFD;
@@ -499,73 +499,6 @@ impl Context {
 }
 
 #[inline]
-pub extern "C" fn enable_local_irq() {
-    unsafe {
-        core::arch::asm!(
-            "msr basepri, {}",
-            in(reg) 0,
-            options(nostack)
-        )
-    }
-}
-
-#[inline]
-pub extern "C" fn disable_local_irq() {
-    unsafe {
-        core::arch::asm!(
-            "msr basepri, {}",
-            in(reg) DISABLE_LOCAL_IRQ_BASEPRI,
-            options(nostack),
-        )
-    }
-}
-
-#[coverage(off)]
-#[cfg_attr(debug, inline(never))]
-pub extern "C" fn disable_local_irq_save() -> usize {
-    let old: usize;
-    unsafe {
-        core::arch::asm!(
-            concat!(
-                "
-                mrs {old}, basepri
-                msr basepri, {val}
-                ",
-            ),
-            old = out(reg) old,
-            val = in(reg) DISABLE_LOCAL_IRQ_BASEPRI,
-            options(nostack)
-        )
-    }
-    atomic::compiler_fence(Ordering::SeqCst);
-    old
-}
-
-#[coverage(off)]
-#[cfg_attr(debug, inline(never))]
-pub extern "C" fn enable_local_irq_restore(old: usize) {
-    atomic::compiler_fence(Ordering::SeqCst);
-    unsafe {
-        core::arch::asm!(
-        "msr basepri, {}", 
-        in(reg) old,
-        options(nostack))
-    }
-}
-
-#[inline]
-pub extern "C" fn idle() {
-    unsafe { core::arch::asm!("wfi") }
-}
-
-#[inline]
-pub extern "C" fn current_sp() -> usize {
-    let x: usize;
-    unsafe { core::arch::asm!("mov {}, sp", out(reg) x, options(nostack, nomem)) };
-    x
-}
-
-#[inline]
 pub extern "C" fn current_msp() -> usize {
     let x: usize;
     unsafe { core::arch::asm!("mrs {}, msp", out(reg) x, options(nostack, nomem)) };
@@ -596,31 +529,9 @@ pub(crate) extern "C" fn switch_context_with_hook(hook: *mut ContextSwitchHookHo
 }
 
 #[inline(always)]
-pub extern "C" fn pend_switch_context() {
-    post_pendsv();
-}
-
-#[inline(always)]
 pub(crate) extern "C" fn restore_context_with_hook(hook: *mut ContextSwitchHookHolder) -> ! {
     switch_context_with_hook(hook);
     unreachable!("Should have switched to another thread");
-}
-
-#[inline]
-pub extern "C" fn current_cpu_id() -> usize {
-    0
-}
-
-#[inline]
-pub extern "C" fn local_irq_enabled() -> bool {
-    let x: usize;
-    unsafe {
-        core::arch::asm!(
-            "mrs {}, basepri",
-            out(reg) x, options(nostack)
-        );
-    };
-    x == 0
 }
 
 #[inline]
@@ -628,20 +539,130 @@ pub extern "C" fn is_in_interrupt() -> bool {
     cortex_m::peripheral::SCB::vect_active() != cortex_m::peripheral::scb::VectActive::ThreadMode
 }
 
-#[naked]
-pub(crate) extern "C" fn switch_stack(
-    to_sp: usize,
-    cont: extern "C" fn(sp: usize, old_sp: usize),
-) -> ! {
-    unsafe {
-        core::arch::naked_asm!(
-            "
-            mov r12, r1
-            mrs r1, psp
-            msr psp, r0
-            bx r12
-            "
-        )
+pub struct ArchImpl;
+
+impl Arch for ArchImpl {
+    // FIXME: Support SMP on Arm.
+    extern "C" fn current_cpu_id() -> usize {
+        0
+    }
+
+    extern "C" fn switch_context_with_hook(hook: *mut ContextSwitchHookHolder) {
+        unsafe {
+            core::arch::asm!(
+                "movs {tmp}, r7",
+                "ldr r7, ={nr}",
+                "svc 0",
+                "mov r7, {tmp}",
+                in("r0") hook as usize,
+                tmp = out(reg) _,
+                nr = const NR_SWITCH,
+                options(nostack),
+            )
+        }
+    }
+
+    extern "C" fn disable_local_irq() {
+        unsafe {
+            core::arch::asm!(
+                "msr basepri, {}",
+                in(reg) DISABLE_LOCAL_IRQ_BASEPRI,
+                options(nostack),
+            )
+        }
+    }
+
+    extern "C" fn enable_local_irq() {
+        unsafe {
+            core::arch::asm!(
+                "msr basepri, {}",
+                in(reg) 0,
+                options(nostack)
+            )
+        }
+    }
+
+    extern "C" fn local_irq_enabled() -> bool {
+        let x: usize;
+        unsafe {
+            core::arch::asm!(
+                "mrs {}, basepri",
+                out(reg) x, options(nostack)
+            );
+        };
+        x == 0
+    }
+
+    #[coverage(off)]
+    extern "C" fn disable_local_irq_save() -> usize {
+        let old: usize;
+        unsafe {
+            core::arch::asm!(
+                concat!(
+                    "
+                mrs {old}, basepri
+                msr basepri, {val}
+                ",
+                ),
+                old = out(reg) old,
+                val = in(reg) DISABLE_LOCAL_IRQ_BASEPRI,
+                options(nostack)
+            )
+        }
+        atomic::compiler_fence(Ordering::SeqCst);
+        old
+    }
+
+    #[coverage(off)]
+    extern "C" fn enable_local_irq_restore(old: usize) {
+        atomic::compiler_fence(Ordering::SeqCst);
+        unsafe {
+            core::arch::asm!(
+        "msr basepri, {}", 
+        in(reg) old,
+        options(nostack))
+        }
+    }
+
+    extern "C" fn idle() {
+        unsafe { core::arch::asm!("wfi") }
+    }
+
+    extern "C" fn current_sp() -> usize {
+        let x: usize;
+        unsafe { core::arch::asm!("mov {}, sp", out(reg) x, options(nostack, nomem)) };
+        x
+    }
+
+    #[naked]
+    extern "C" fn switch_stack(
+        to_sp: usize,
+        cont: extern "C" fn(to_sp: usize, old_sp: usize),
+        ra: usize,
+    ) -> ! {
+        unsafe {
+            core::arch::naked_asm!(
+                "
+                mov r12, r1
+                mrs r1, psp
+                msr psp, r0
+                mov lr, r2
+                bx r12
+                "
+            )
+        }
+    }
+
+    extern "C" fn pend_context_switch() {
+        post_pendsv();
+    }
+
+    extern "C" fn claim_context_switch() -> bool {
+        false
+    }
+
+    extern "C" fn start_schedule(cont: extern "C" fn() -> !) {
+        unsafe { reset_msp_and_start_schedule(&mut __sys_stack_end as *mut u8, cont) }
     }
 }
 

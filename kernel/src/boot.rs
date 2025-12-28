@@ -19,7 +19,9 @@ use crate::net;
 #[cfg(enable_vfs)]
 use crate::vfs;
 use crate::{
-    allocator, arch, boards,
+    allocator,
+    arch::{Arch, ArchImpl},
+    boards,
     devices::{
         console,
         tty::{
@@ -140,7 +142,7 @@ extern "C" fn init() {
     #[cfg(enable_vfs)]
     init_vfs();
     init_apps();
-    arch::start_schedule(scheduler::schedule);
+    ArchImpl::start_schedule(scheduler::schedule);
     unreachable!("We should have jumped to the schedule loop!");
 }
 

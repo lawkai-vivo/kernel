@@ -22,7 +22,10 @@
 mod config;
 use crate::{
     arch,
-    arch::riscv::{local_irq_enabled, trap_entry, Context},
+    arch::{
+        riscv::{trap::trap_entry, ArchImpl, Context},
+        Arch,
+    },
     drivers::ic::plic::Plic,
     scheduler,
     support::SmpStagedInit,
@@ -60,7 +63,7 @@ pub fn current_cycles() -> usize {
 }
 
 fn set_timecmp(tick: usize) {
-    let hart = arch::current_cpu_id();
+    let hart = ArchImpl::current_cpu_id();
     unsafe { clock_timecmp_ptr(hart).write_volatile(tick) };
 }
 
@@ -78,7 +81,7 @@ fn init_vector_table() {
 }
 
 pub(crate) fn handle_plic_irq(ctx: &Context, mcause: usize, mtval: usize) {
-    let cpu_id = arch::current_cpu_id();
+    let cpu_id = ArchImpl::current_cpu_id();
     PLIC.complete(cpu_id, PLIC.claim(cpu_id))
 }
 
@@ -97,7 +100,7 @@ pub(crate) fn current_duration() -> core::time::Duration {
 static STAGING: SmpStagedInit = SmpStagedInit::new();
 
 pub(crate) fn init() {
-    assert!(!local_irq_enabled());
+    assert!(!ArchImpl::local_irq_enabled());
     STAGING.run(0, true, crate::boot::init_runtime);
     STAGING.run(1, true, crate::boot::init_heap);
     STAGING.run(2, false, init_vector_table);
@@ -106,13 +109,13 @@ pub(crate) fn init() {
     });
     STAGING.run(4, false, time::reset_systick);
     // From now on, all work will be done by core 0.
-    if arch::current_cpu_id() != 0 {
+    if ArchImpl::current_cpu_id() != 0 {
         scheduler::wait_and_then_start_schedule();
         unreachable!("Secondary cores should have jumped to the scheduler");
     }
     // Enable UART0 in PLIC.
     PLIC.enable(
-        arch::current_cpu_id(),
+        ArchImpl::current_cpu_id(),
         u32::try_from(usize::from(config::UART0_IRQ))
             .expect("usize(64 bits) converts to u32 failed"),
     );

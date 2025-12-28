@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{arch, scheduler, thread, thread::ThreadNode};
+use crate::{arch, arch::Arch, scheduler, thread, thread::ThreadNode};
 
 fn handle_signal_fallback(signum: i32) {
     if signum != libc::SIGTERM {
@@ -32,8 +32,7 @@ fn handle_signal(t: &ThreadNode, signum: i32) {
 }
 
 // This routine is supposed to be executed in THREAD mode.
-#[inline(never)]
-pub(crate) unsafe extern "C" fn handler_entry(_sp: usize, _old_sp: usize) {
+pub(crate) extern "C" fn handler_entry(_to_sp: usize, _from_sp: usize) {
     let current = scheduler::current_thread();
     let sigset = current.lock().pending_signals();
     for i in 0..32 {
@@ -52,5 +51,5 @@ pub(crate) unsafe extern "C" fn handler_entry(_sp: usize, _old_sp: usize) {
     let mut hook_holder = scheduler::ContextSwitchHookHolder::new(current);
     // We are switching from current thread's signal context to its thread
     // context.
-    arch::switch_context_with_hook(&mut hook_holder as *mut _);
+    arch::ArchImpl::switch_context_with_hook(&mut hook_holder as *mut _);
 }

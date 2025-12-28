@@ -14,7 +14,9 @@
 
 extern crate alloc;
 use crate::{
-    arch, irq, signal,
+    arch,
+    arch::Arch,
+    irq, signal,
     support::DisableInterruptGuard,
     sync::SpinLockGuard,
     thread,
@@ -105,7 +107,7 @@ pub(crate) fn init() {
     fifo::init();
 }
 
-pub(crate) struct ContextSwitchHookHolder {
+pub struct ContextSwitchHookHolder {
     // Next thread is a must.
     // FIXME: We can use Arc::into_raw and Arc::from_raw to eliminate this
     // Option, though unsafe.
@@ -140,9 +142,10 @@ fn prepare_signal_handling(t: &ThreadNode) {
     let ctx = l.saved_sp() as *mut arch::Context;
     let ctx = unsafe { &mut *ctx };
     // Update ctx so that signal context will be restored.
-    ctx.set_return_address(arch::switch_stack as usize)
+    ctx.set_return_address(arch::ArchImpl::switch_stack as usize)
         .set_arg(0, l.signal_handler_sp())
-        .set_arg(1, signal::handler_entry as usize);
+        .set_arg(1, signal::handler_entry as usize)
+        .set_arg(2, 0);
 }
 
 #[inline]
@@ -261,7 +264,7 @@ fn switch_current_thread(next: ThreadNode, old_sp: usize) -> usize {
 // It's usually used in cortex-m's pendsv handler. It assumes current
 // thread's context is already saved.
 pub(crate) extern "C" fn relinquish_me_and_return_next_sp(old_sp: usize) -> usize {
-    debug_assert!(!arch::local_irq_enabled());
+    debug_assert!(!arch::ArchImpl::local_irq_enabled());
     debug_assert!(!crate::irq::is_in_irq());
     let Some(next) = next_preferred_thread(current_thread_ref().priority()) else {
         #[cfg(debugging_scheduler)]
@@ -275,7 +278,7 @@ pub(crate) extern "C" fn relinquish_me_and_return_next_sp(old_sp: usize) -> usiz
 // It's usually used in cortex-m's pendsv handler. It assumes current
 // thread's context is already saved.
 pub(crate) extern "C" fn yield_me_and_return_next_sp(old_sp: usize) -> usize {
-    debug_assert!(!arch::local_irq_enabled());
+    debug_assert!(!arch::ArchImpl::local_irq_enabled());
     debug_assert!(!crate::irq::is_in_irq());
     let Some(next) = next_ready_thread() else {
         #[cfg(debugging_scheduler)]
@@ -298,7 +301,7 @@ pub fn retire_me() -> ! {
     let mut hooks = ContextSwitchHookHolder::new(next);
     let ok = current_thread_ref().transfer_state(thread::RUNNING, thread::RETIRED);
     debug_assert!(ok);
-    arch::switch_context_with_hook(&mut hooks as *mut _);
+    arch::ArchImpl::switch_context_with_hook(&mut hooks as *mut _);
     unreachable!("Retired thread should not reach here")
 }
 
@@ -312,8 +315,8 @@ fn inner_yield(next: ThreadNode) {
         queue_ready_thread(thread::RUNNING, old.clone())
     };
     debug_assert!(ok);
-    arch::switch_context_with_hook(&mut hook_holder as *mut _);
-    debug_assert!(arch::local_irq_enabled());
+    arch::ArchImpl::switch_context_with_hook(&mut hook_holder as *mut _);
+    debug_assert!(arch::ArchImpl::local_irq_enabled());
     old.enable_preempt();
 }
 
@@ -321,9 +324,9 @@ pub fn yield_me() {
     // We don't allow thread yielding with irq disabled.
     // The scheduler assumes every thread should be resumed with local
     // irq enabled.
-    debug_assert!(arch::local_irq_enabled());
+    debug_assert!(arch::ArchImpl::local_irq_enabled());
     let Some(next) = next_ready_thread() else {
-        arch::idle();
+        arch::ArchImpl::idle();
         return;
     };
     debug_assert_eq!(next.state(), thread::READY);
@@ -331,7 +334,7 @@ pub fn yield_me() {
 }
 
 pub fn relinquish_me() {
-    debug_assert!(arch::local_irq_enabled());
+    debug_assert!(arch::ArchImpl::local_irq_enabled());
     let old = current_thread_ref();
     let Some(next) = next_preferred_thread(old.priority()) else {
         return;
@@ -393,8 +396,8 @@ pub(crate) fn suspend_me_with_hook(hook: impl FnOnce() + 'static) {
     old.disable_preempt();
     let ok = old.transfer_state(thread::RUNNING, thread::SUSPENDED);
     debug_assert!(ok);
-    arch::switch_context_with_hook(&mut hook_holder as *mut _);
-    debug_assert!(arch::local_irq_enabled());
+    arch::ArchImpl::switch_context_with_hook(&mut hook_holder as *mut _);
+    debug_assert!(arch::ArchImpl::local_irq_enabled());
     // Shall we put enable_preempt in save_context_finish_hook?
     old.enable_preempt();
 }
@@ -413,8 +416,8 @@ pub fn suspend_me_for(ticks: usize) {
     old.disable_preempt();
     let ok = old.transfer_state(thread::RUNNING, thread::SUSPENDED);
     debug_assert!(ok);
-    arch::switch_context_with_hook(&mut hook_holder as *mut _);
-    debug_assert!(arch::local_irq_enabled());
+    arch::ArchImpl::switch_context_with_hook(&mut hook_holder as *mut _);
+    debug_assert!(arch::ArchImpl::local_irq_enabled());
     old.enable_preempt();
 }
 
@@ -457,8 +460,8 @@ pub fn suspend_me_with_timeout(w: SpinLockGuard<'_, WaitQueue>, ticks: usize) ->
     let ok = old.transfer_state(thread::RUNNING, thread::SUSPENDED);
     debug_assert!(ok);
     drop(w);
-    arch::switch_context_with_hook(&mut hook_holder as *mut _);
-    debug_assert!(arch::local_irq_enabled());
+    arch::ArchImpl::switch_context_with_hook(&mut hook_holder as *mut _);
+    debug_assert!(arch::ArchImpl::local_irq_enabled());
     old.enable_preempt();
     timeout.load(Ordering::Acquire)
 }
@@ -474,7 +477,7 @@ pub fn yield_me_now_or_later() {
     if current_thread_ref().preempt_count() != 0 {
         return;
     }
-    arch::pend_switch_context();
+    arch::ArchImpl::pend_context_switch();
 }
 
 pub fn wake_up_all(mut w: SpinLockGuard<'_, WaitQueue>) -> usize {
@@ -496,14 +499,14 @@ pub fn wait_and_then_start_schedule() {
     while READY_CORES.load(Ordering::Acquire) == 0 {
         core::hint::spin_loop();
     }
-    arch::start_schedule(schedule);
+    arch::ArchImpl::start_schedule(schedule);
 }
 
 // Entry of system idle threads.
 pub extern "C" fn schedule() -> ! {
     READY_CORES.fetch_add(1, Ordering::Relaxed);
-    arch::enable_local_irq();
-    debug_assert!(arch::local_irq_enabled());
+    arch::ArchImpl::enable_local_irq();
+    debug_assert!(arch::ArchImpl::local_irq_enabled());
     loop {
         yield_me();
         idle::get_idle_hook()();
@@ -513,7 +516,7 @@ pub extern "C" fn schedule() -> ! {
 #[inline]
 pub fn current_thread() -> ThreadNode {
     let _guard = DisableInterruptGuard::new();
-    let my_id = arch::current_cpu_id();
+    let my_id = arch::ArchImpl::current_cpu_id();
     let t = unsafe { RUNNING_THREADS[my_id].assume_init_ref().clone() };
     t
 }
@@ -521,14 +524,14 @@ pub fn current_thread() -> ThreadNode {
 #[inline]
 pub fn current_thread_ref() -> &'static Thread {
     let _guard = DisableInterruptGuard::new();
-    let my_id = arch::current_cpu_id();
+    let my_id = arch::ArchImpl::current_cpu_id();
     unsafe { RUNNING_THREADS[my_id].assume_init_ref() }
 }
 
 #[inline]
 pub fn current_thread_id() -> usize {
     let _guard = DisableInterruptGuard::new();
-    let my_id = arch::current_cpu_id();
+    let my_id = arch::ArchImpl::current_cpu_id();
     let t = unsafe { RUNNING_THREADS[my_id].assume_init_ref() };
     Thread::id(t)
 }
@@ -550,7 +553,7 @@ pub(crate) fn handle_tick_increment(elapsed_ticks: usize) -> bool {
 
 fn set_current_thread(t: ThreadNode) -> ThreadNode {
     let _dig = DisableInterruptGuard::new();
-    let my_id = arch::current_cpu_id();
+    let my_id = arch::ArchImpl::current_cpu_id();
     let old = unsafe { core::mem::replace(RUNNING_THREADS[my_id].assume_init_mut(), t) };
     // Do not validate sp here, since we might be using system stack,
     // like on cortex-m platform.

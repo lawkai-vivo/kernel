@@ -17,7 +17,7 @@ extern crate alloc;
 use crate::sync::event_flags::EventFlagsMode;
 use crate::{
     arch,
-    arch::Context,
+    arch::{Arch, Context},
     config,
     config::DEFAULT_STACK_SIZE,
     debug, scheduler,
@@ -242,13 +242,13 @@ impl Thread {
 
     #[inline(always)]
     pub fn stack_usage(&self) -> usize {
-        let sp = arch::current_sp();
+        let sp = arch::ArchImpl::current_sp();
         self.stack.top() as usize - sp
     }
 
     #[inline(always)]
     pub fn validate_sp(&self) -> bool {
-        let sp = arch::current_sp();
+        let sp = arch::ArchImpl::current_sp();
         sp >= self.stack.base() as usize && sp <= self.stack.top() as usize
     }
 

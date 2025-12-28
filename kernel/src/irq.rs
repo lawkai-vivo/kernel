@@ -12,7 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{arch, support::DisableInterruptGuard, time, types::Uint};
+use crate::{
+    arch,
+    arch::{Arch, ArchImpl},
+    support::DisableInterruptGuard,
+    time,
+    types::Uint,
+};
 use blueos_kconfig::CONFIG_NUM_CORES as NUM_CORES;
 use core::sync::atomic::Ordering;
 
@@ -54,12 +60,12 @@ impl Drop for IrqTrace {
 
 pub fn is_in_irq() -> bool {
     let _dig = DisableInterruptGuard::new();
-    unsafe { IRQ_NESTING_COUNT[arch::current_cpu_id()] != 0 }
+    unsafe { IRQ_NESTING_COUNT[ArchImpl::current_cpu_id()] != 0 }
 }
 
 #[inline]
 unsafe fn increment_nesting_count() -> usize {
-    let id = arch::current_cpu_id();
+    let id = ArchImpl::current_cpu_id();
     let old = IRQ_NESTING_COUNT[id];
     let _ = core::mem::replace(&mut IRQ_NESTING_COUNT[id], old + 1);
     old as usize
@@ -67,7 +73,7 @@ unsafe fn increment_nesting_count() -> usize {
 
 #[inline]
 unsafe fn decrement_nesting_count() -> usize {
-    let id = arch::current_cpu_id();
+    let id = ArchImpl::current_cpu_id();
     let old = IRQ_NESTING_COUNT[id];
     let _ = core::mem::replace(&mut IRQ_NESTING_COUNT[id], old - 1);
     old as usize
@@ -78,7 +84,7 @@ pub extern "C" fn enter_irq() -> usize {
     let _dig = DisableInterruptGuard::new();
     #[cfg(procfs)]
     unsafe {
-        irq_trace::PER_CPU_TRACE_INFO[arch::current_cpu_id()].on_enter();
+        irq_trace::PER_CPU_TRACE_INFO[ArchImpl::current_cpu_id()].on_enter();
     }
     unsafe { increment_nesting_count() + 1 }
 }
@@ -87,7 +93,7 @@ pub extern "C" fn leave_irq() -> usize {
     let _dig = DisableInterruptGuard::new();
     #[cfg(procfs)]
     unsafe {
-        irq_trace::PER_CPU_TRACE_INFO[arch::current_cpu_id()].on_leave();
+        irq_trace::PER_CPU_TRACE_INFO[ArchImpl::current_cpu_id()].on_leave();
     }
     unsafe { decrement_nesting_count() - 1 }
 }

@@ -41,7 +41,9 @@ mod tests {
     use super::*;
     use blueos::{
         allocator::{memory_info, KernelAllocator},
-        arch, scheduler,
+        arch,
+        arch::{Arch, ArchImpl},
+        scheduler,
         thread::{Builder, Entry, Thread, ThreadNode},
     };
 
@@ -81,7 +83,7 @@ mod tests {
             Thread::id(&t),
             ThreadNode::strong_count(&t) - 1,
             memory_info(),
-            arch::current_sp()
+            ArchImpl::current_sp()
         );
     }
     // copy from librs, cmsis_rv2 need an c library in fact

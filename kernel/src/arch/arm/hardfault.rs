@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{xpsr, IsrContext};
+use super::{xpsr, Arch, IsrContext};
 use core::fmt;
 use cortex_m::peripheral::SCB;
 
@@ -214,7 +214,7 @@ impl fmt::Display for HardFaultRegs {
 }
 
 pub extern "C" fn panic_on_hardfault(ctx: &IsrContext) {
-    super::disable_local_irq();
+    super::ArchImpl::disable_local_irq();
     let fault_regs: HardFaultRegs = HardFaultRegs::from_scb();
     let xpsr = xpsr::read();
     panic!(

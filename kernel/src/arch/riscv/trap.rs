@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{
-    claim_switch_context, disable_local_irq, enable_local_irq, Context, IsrContext, NR_SWITCH,
-};
 use crate::{
+    arch::{
+        riscv::{ArchImpl, Context, IsrContext, NR_SWITCH},
+        Arch,
+    },
     boards::handle_plic_irq,
     debug,
     irq::{enter_irq, leave_irq},
@@ -140,14 +141,14 @@ impl SyscallGuard {
         }
         compiler_fence(Ordering::SeqCst);
         leave_irq();
-        enable_local_irq();
+        ArchImpl::enable_local_irq();
         g
     }
 }
 
 impl Drop for SyscallGuard {
     fn drop(&mut self) {
-        disable_local_irq();
+        ArchImpl::disable_local_irq();
         enter_irq();
         compiler_fence(Ordering::SeqCst);
         unsafe {
@@ -202,7 +203,7 @@ extern "C" fn handle_ecall(ctx: &mut Context, cont: usize) -> usize {
 // another way to switch context on RV.
 fn might_switch_context(from: &Context, ra: usize) -> usize {
     let old_sp = from as *const _ as usize;
-    if !claim_switch_context() {
+    if !ArchImpl::claim_context_switch() {
         return old_sp;
     }
     let old = scheduler::current_thread_ref();
@@ -226,7 +227,7 @@ fn might_switch_context(from: &Context, ra: usize) -> usize {
 }
 
 extern "C" fn handle_trap(ctx: &mut Context, mcause: usize, mtval: usize, cont: usize) -> usize {
-    debug_assert!(!super::local_irq_enabled());
+    debug_assert!(!ArchImpl::local_irq_enabled());
     let sp = ctx as *const _ as usize;
     match mcause {
         EXTERN_INT => {
@@ -242,7 +243,7 @@ extern "C" fn handle_trap(ctx: &mut Context, mcause: usize, mtval: usize, cont: 
             let t = scheduler::current_thread_ref();
             panic!(
                 "[C#{}:0x{:x}] Unexpected trap: context: {:?}, mcause: 0x{:x}, mtval: 0x{:x}",
-                super::current_cpu_id(),
+                ArchImpl::current_cpu_id(),
                 Thread::id(t),
                 ctx,
                 mcause,

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    arch,
+    arch::{Arch, ArchImpl},
     sync::spinlock::{SpinLock, SpinLockGuard},
     thread::ThreadNode,
     types::{Arc, ArcList, AtomicUint, IntrusiveAdapter, Uint},
@@ -34,7 +34,7 @@ impl DisableInterruptGuard {
     #[inline]
     pub fn new() -> Self {
         Self {
-            old: arch::disable_local_irq_save(),
+            old: ArchImpl::disable_local_irq_save(),
         }
     }
 }
@@ -42,7 +42,7 @@ impl DisableInterruptGuard {
 impl Drop for DisableInterruptGuard {
     #[inline]
     fn drop(&mut self) {
-        arch::enable_local_irq_restore(self.old);
+        ArchImpl::enable_local_irq_restore(self.old);
     }
 }
 
@@ -51,7 +51,7 @@ pub struct PlainDisableInterruptGuard;
 impl PlainDisableInterruptGuard {
     #[inline]
     pub fn new() -> Self {
-        arch::disable_local_irq();
+        ArchImpl::disable_local_irq();
         Self
     }
 }
@@ -59,7 +59,7 @@ impl PlainDisableInterruptGuard {
 impl Drop for PlainDisableInterruptGuard {
     #[inline]
     fn drop(&mut self) {
-        arch::enable_local_irq();
+        ArchImpl::enable_local_irq();
     }
 }
 
@@ -246,7 +246,7 @@ pub(crate) struct PerCpuVarAccessGuard {
 impl PerCpuVarAccessGuard {
     pub fn new() -> Self {
         let dig = DisableInterruptGuard::new();
-        let id = arch::current_cpu_id();
+        let id = ArchImpl::current_cpu_id();
         let t = unsafe {
             crate::scheduler::RUNNING_THREADS[id]
                 .assume_init_ref()
@@ -368,7 +368,7 @@ impl SmpStagedInit {
     }
 
     pub fn run(&self, stage: usize, only_core_0: bool, f: impl FnOnce() + 'static) {
-        let id = arch::current_cpu_id();
+        let id = ArchImpl::current_cpu_id();
         if !only_core_0 {
             f();
             if id != 0 {

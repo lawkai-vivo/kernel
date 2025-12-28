@@ -35,7 +35,9 @@ mod tests {
     use super::*;
     use blueos::{
         allocator::{memory_info, KernelAllocator},
-        arch, scheduler,
+        arch,
+        arch::{Arch, ArchImpl},
+        scheduler,
         thread::{Builder, Entry, Thread, ThreadNode},
     };
 
@@ -56,7 +58,7 @@ mod tests {
             Thread::id(&t),
             ThreadNode::strong_count(&t),
             memory_info(),
-            arch::current_sp(),
+            ArchImpl::current_sp(),
         );
         for test in tests {
             test();
@@ -65,7 +67,7 @@ mod tests {
             "After test, thread 0x{:x}, heap status: {:?}, sp: 0x{:x}",
             Thread::id(&t),
             memory_info(),
-            arch::current_sp(),
+            ArchImpl::current_sp(),
         );
         semihosting::println!("CMSIS adapter unittest ended");
 

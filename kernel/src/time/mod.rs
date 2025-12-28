@@ -15,7 +15,7 @@
 pub mod systick;
 pub mod timer;
 
-use crate::{arch, boards, scheduler, support::DisableInterruptGuard, thread::Thread};
+use crate::{arch, arch::Arch, boards, scheduler, support::DisableInterruptGuard, thread::Thread};
 use systick::SYSTICK;
 
 pub const TICKS_PER_SECOND: usize = blueos_kconfig::CONFIG_TICKS_PER_SECOND as usize;
@@ -43,7 +43,7 @@ pub extern "C" fn handle_tick_increment() {
     let _guard = DisableInterruptGuard::new();
     let mut need_schedule = false;
     // FIXME: aarch64 and riscv64 need to be supported
-    if arch::current_cpu_id() == 0 {
+    if arch::ArchImpl::current_cpu_id() == 0 {
         let ticks = SYSTICK.increment_ticks();
         need_schedule = timer::check_hard_timer(ticks);
     }
