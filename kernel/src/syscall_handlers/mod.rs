@@ -18,6 +18,7 @@ extern crate alloc;
 use crate::asynk;
 #[cfg(enable_net)]
 use crate::net::syscalls as net_syscalls;
+pub use crate::sync::posix_mqueue;
 #[cfg(enable_vfs)]
 use crate::vfs::syscalls as vfs_syscalls;
 #[cfg(enable_vfs)]
@@ -27,9 +28,8 @@ use crate::{
     sync::atomic_wait as futex,
     thread::{self, Builder, Entry, Stack, Thread},
     time,
+    types::Arc,
 };
-
-pub use crate::sync::posix_mqueue;
 use alloc::boxed::Box;
 use blueos_header::{syscalls::NR, thread::SpawnArgs};
 use core::{
@@ -324,8 +324,8 @@ get_tid() -> c_long {
 
 define_syscall_handler!(
 get_sched_param(tid: usize) -> c_long {
-
-    let target = thread::GlobalQueueVisitor::find_if(|t| {
+    let visitor = thread::GlobalQueueVisitor::new();
+    let target = visitor.iter().find(|t| {
         thread::Thread::id(t) == tid
     });
     let Some(target) = target else {
@@ -341,7 +341,8 @@ set_sched_param(tid: usize, prio: c_int) -> c_long {
     }
     let p = prio as crate::types::ThreadPriority;
     let mut was_ready = false;
-    let target = thread::GlobalQueueVisitor::find_if(|t| {
+    let visitor = thread::GlobalQueueVisitor::new();
+    let target = visitor.iter().find(|t| {
         if thread::Thread::id(t) == tid {
             was_ready = t.state() == thread::READY;
             if !was_ready {
@@ -358,7 +359,8 @@ set_sched_param(tid: usize, prio: c_int) -> c_long {
     let Some(target) = target else {
         return -(ESRCH as c_long);
     };
-
+    let target = unsafe { Arc::clone_from(target) };
+    drop(visitor);
     let preempt_guard = thread::Thread::try_preempt_me();
     let ret = if was_ready {
         match scheduler::update_ready_thread_priority(&target, p) {

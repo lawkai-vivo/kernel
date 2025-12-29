@@ -25,8 +25,8 @@ use crate::{
     time::WAITING_FOREVER,
     trace,
     types::{
-        impl_simple_intrusive_adapter, Arc, ArcList, ArcListIterator, AtomicIlistHead as ListHead,
-        StaticListOwner, UniqueListHead,
+        impl_simple_intrusive_adapter, Arc, ArcList, IlistHead as ListHead, StaticListOwner,
+        UniqueOwnerListHead,
     },
 };
 use core::{
@@ -39,7 +39,7 @@ impl_simple_intrusive_adapter!(Sync, AtomicWaitEntry, sync_node);
 type Head = ListHead<AtomicWaitEntry, Sync>;
 // An AtomicWaitEntry might be accessed by multiple threads, so we use Arc here.
 type EntryNode = Arc<AtomicWaitEntry>;
-type EntryListHead = UniqueListHead<AtomicWaitEntry, Sync, SyncEntry>;
+type EntryListHead = UniqueOwnerListHead<AtomicWaitEntry, Sync, SyncEntry>;
 
 #[derive(Default, Debug)]
 pub struct SyncEntry;
@@ -93,21 +93,20 @@ pub fn atomic_wait(atom: &AtomicUsize, val: usize, timeout: Option<usize>) -> Re
     }
     let mut entry = None;
     let addr = atom as *const _ as usize;
-    for e in ArcListIterator::new(w.get_list_mut(), None) {
+    for e in w.iter() {
         if e.addr() == addr {
             entry = Some(e);
             break;
         }
     }
-    let entry = entry.map_or_else(
-        || {
-            let entry = Arc::new(AtomicWaitEntry::new(addr));
-            entry.init();
-            w.insert(entry.clone());
-            entry
-        },
-        |e| unsafe { Arc::clone_from(e) },
-    );
+    let entry = if let Some(e) = entry {
+        unsafe { Arc::clone_from(e) }
+    } else {
+        let entry = Arc::new(AtomicWaitEntry::new(addr));
+        entry.init();
+        w.insert(entry.clone());
+        entry
+    };
     let t = scheduler::current_thread();
     let mut we = entry.pending.irqsave_lock();
     we.take_irq_guard(w.get_guard_mut());
@@ -156,16 +155,12 @@ pub fn atomic_wake(atom: &AtomicUsize, how_many: usize) -> Result<usize, Error> 
     );
     let mut woken = 0;
     let mut w = EntryListHead::lock();
-    for e in ArcListIterator::new(w.get_list_mut(), None) {
+    for e in w.iter() {
         if e.addr() != addr {
             continue;
         }
         let mut we = e.pending.irqsave_lock();
         woken += wait_queue::wake_up(&mut we, how_many);
-        if we.is_empty() {
-            let mut the_entry = unsafe { Arc::clone_from(e) };
-            w.detach(&mut the_entry);
-        }
         if woken == how_many {
             break;
         }

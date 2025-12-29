@@ -30,7 +30,7 @@ use crate::{
     time::timer::Timer,
     types::{
         impl_simple_intrusive_adapter, Arc, ArcCas, ArcList, AtomicUint, IlistHead, ThreadPriority,
-        Uint, UniqueListHead,
+        Uint, UniqueOwnerListHead,
     },
 };
 use alloc::boxed::Box;
@@ -133,7 +133,7 @@ impl ThreadStats {
     }
 }
 
-pub(crate) type GlobalQueueListHead = UniqueListHead<Thread, OffsetOfGlobal, GlobalQueue>;
+pub(crate) type GlobalQueueListHead = UniqueOwnerListHead<Thread, OffsetOfGlobal, GlobalQueue>;
 
 #[derive(Default)]
 pub(crate) struct SignalContext {
@@ -382,7 +382,7 @@ impl Thread {
             state: AtomicUint::new(IDLE),
             lock: ISpinLock::new(),
             sched_node: IlistHead::<Thread, OffsetOfSchedNode>::new(),
-            global: UniqueListHead::new(),
+            global: UniqueOwnerListHead::new(),
             saved_sp: AtomicUsize::new(0),
             priority: 0,
             origin_priority: 0,

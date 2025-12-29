@@ -22,7 +22,8 @@ use crate::{
     sync::spinlock::{SpinLock, SpinLockGuard},
     thread, trace,
     types::{
-        Arc, ArcInner, ArcList, ArcListIterator, AtomicIlistHead as ListHead, StaticListOwner, Uint,
+        Arc, ArcInner, ArcList, ArcListIterator, IlistHead as ListHead, StaticListOwner, Uint,
+        UniqueOwnerListAccessGuard, UniqueOwnerListIterator,
     },
 };
 use alloc::boxed::Box;
@@ -40,9 +41,8 @@ static_arc! {
     GLOBAL_QUEUE(SpinLock<Head>, SpinLock::new(Head::new())),
 }
 
-pub struct GlobalQueueVisitor<'a> {
-    lock: SpinLockGuard<'a, Head>,
-    it: ArcListIterator<'a, Thread, OffsetOfGlobal>,
+pub struct GlobalQueueVisitor {
+    guard: UniqueOwnerListAccessGuard<Thread, OffsetOfGlobal, GlobalQueue>,
 }
 
 #[derive(Default, Debug)]
@@ -54,38 +54,22 @@ impl const StaticListOwner<Thread, OffsetOfGlobal> for GlobalQueue {
     }
 }
 
-impl GlobalQueueVisitor<'_> {
+impl GlobalQueueVisitor {
     pub fn new() -> Self {
-        let lock = GLOBAL_QUEUE.irqsave_lock();
-        let it = ArcListIterator::new(&*lock, None);
-        Self { lock, it }
+        let guard = UniqueOwnerListAccessGuard::new();
+        Self { guard }
     }
 
-    #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> Option<ThreadNode> {
-        let next = self.it.next()?;
-        Some(unsafe { Arc::clone_from(next) })
+    pub fn add(&mut self, t: ThreadNode) -> bool {
+        self.guard.insert(t)
     }
 
-    pub fn add(t: ThreadNode) -> bool {
-        GlobalQueueListHead::insert(t)
+    pub fn remove(&mut self, t: &mut ThreadNode) -> bool {
+        self.guard.detach(t)
     }
 
-    pub fn remove(t: &mut ThreadNode) -> bool {
-        GlobalQueueListHead::detach(t)
-    }
-
-    pub fn find_if<F>(mut predicate: F) -> Option<ThreadNode>
-    where
-        F: FnMut(&ThreadNode) -> bool,
-    {
-        let mut visitor = GlobalQueueVisitor::new();
-        while let Some(t) = visitor.next() {
-            if predicate(&t) {
-                return Some(t);
-            }
-        }
-        None
+    pub fn iter(&self) -> UniqueOwnerListIterator<'_, Thread, OffsetOfGlobal> {
+        self.guard.iter()
     }
 }
 
@@ -140,7 +124,7 @@ impl Builder {
         w.set_origin_priority(self.priority);
         w.set_priority(self.priority);
         drop(w);
-        GlobalQueueVisitor::add(thread.clone());
+        GlobalQueueVisitor::new().add(thread.clone());
 
         #[cfg(procfs)]
         {
@@ -218,7 +202,7 @@ pub(crate) fn build_static_thread(
     );
     drop(w);
     t.write(arc.clone());
-    GlobalQueueVisitor::add(arc.clone());
+    GlobalQueueVisitor::new().add(arc.clone());
     arc
 }
 

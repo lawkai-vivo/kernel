@@ -298,7 +298,7 @@ impl<T, A: Adapter<T>> List<T, A> {
     }
 
     #[inline]
-    fn list_head_of_mut(this: &mut T) -> &mut ListHead<T, A> {
+    pub fn list_head_of_mut(this: &mut T) -> &mut ListHead<T, A> {
         let ptr = this as *mut T as *mut u8;
         let list_head_ptr = unsafe { ptr.add(A::offset()) } as *mut ListHead<T, A>;
         unsafe { &mut *list_head_ptr }

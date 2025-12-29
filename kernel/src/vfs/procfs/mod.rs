@@ -139,12 +139,13 @@ impl ProcFileSystem {
 
         // not support process yet, use thread info instead. and put all threads in /proc
         let mut global_queue_visitor = GlobalQueueVisitor::new();
-        while let Some(thread) = global_queue_visitor.next() {
-            let id = Thread::id(&thread);
+        for thread in global_queue_visitor.iter() {
+            let id = Thread::id(thread);
             let id_str = id.to_string();
             log::debug!("create_task_dir: /proc/{}", id_str);
             let thread_dir = self.root.create_dir(id_str.as_str(), false)?;
-            let _ = thread_dir.create_task_file("status", thread.clone())?;
+            let _ =
+                thread_dir.create_task_file("status", unsafe { ThreadNode::clone_from(thread) })?;
         }
 
         Ok(())

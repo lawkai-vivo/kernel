@@ -211,7 +211,7 @@ pub(crate) extern "C" fn save_context_finish_hook(
                 Entry::Posix(f, arg) => f(arg),
             }
         };
-        GlobalQueueVisitor::remove(&mut old);
+        GlobalQueueVisitor::new().remove(&mut old);
         if ThreadNode::strong_count(&old) != 1 {
             // TODO: Add warning log that there are still references to the old thread.
         }

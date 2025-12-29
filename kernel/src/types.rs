@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod unique_owner_list;
 use crate::sync::{ISpinLock, SpinLock, SpinLockGuard};
 pub use blueos_infra::{
     impl_simple_intrusive_adapter,
@@ -22,7 +23,7 @@ pub use blueos_infra::{
         typed_atomic_ilist::AtomicListHead as AtomicIlistHead,
         typed_ilist::{
             IouListHeadMut as IouIlistHeadMut, List as Ilist, ListHead as IlistHead,
-            ListIterator as IlistIterator,
+            ListHeadIterator as IlistHeadIterator, ListIterator as IlistIterator,
         },
         GenericList,
     },
@@ -33,6 +34,9 @@ pub use blueos_infra::{
     tinyrwlock::{IRwLock, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 use core::marker::PhantomData;
+pub use unique_owner_list::{
+    StaticListOwner, UniqueOwnerListAccessGuard, UniqueOwnerListHead, UniqueOwnerListIterator,
+};
 
 #[cfg(target_pointer_width = "32")]
 mod inner {
@@ -66,82 +70,6 @@ macro_rules! static_arc {
         }
         use $name::PTR as $name;
     };
-}
-
-#[const_trait]
-pub(crate) trait StaticListOwner<T, A: IntrusiveAdapter<T>> {
-    type List = ArcList<T, A>;
-    fn get() -> &'static Arc<SpinLock<AtomicIlistHead<T, A>>>;
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct UniqueListHead<T, A: IntrusiveAdapter<T>, O: StaticListOwner<T, A>>(
-    AtomicIlistHead<T, A>,
-    PhantomData<O>,
-);
-
-pub(crate) struct UniqueListHeadAccessGuard<
-    T: 'static,
-    A: IntrusiveAdapter<T> + 'static,
-    O: StaticListOwner<T, A>,
->(
-    SpinLockGuard<'static, AtomicIlistHead<T, A>>,
-    PhantomData<O>,
-);
-
-impl<T: 'static, A: IntrusiveAdapter<T> + 'static, O: StaticListOwner<T, A>>
-    UniqueListHeadAccessGuard<T, A, O>
-{
-    #[inline]
-    pub fn new(w: SpinLockGuard<'static, AtomicIlistHead<T, A>>) -> Self {
-        Self(w, PhantomData)
-    }
-
-    #[inline]
-    pub fn detach(&mut self, me: &mut Arc<T>) -> bool {
-        ArcList::<T, A>::detach(me)
-    }
-
-    #[inline]
-    pub fn insert(&mut self, me: Arc<T>) -> bool {
-        ArcList::<T, A>::insert_after(&mut *self.0, me)
-    }
-
-    #[inline]
-    pub fn get_list_mut(&mut self) -> &mut AtomicIlistHead<T, A> {
-        &mut self.0
-    }
-
-    #[inline]
-    pub fn get_guard_mut(&mut self) -> &mut SpinLockGuard<'static, AtomicIlistHead<T, A>> {
-        &mut self.0
-    }
-}
-
-impl<T: 'static, A: IntrusiveAdapter<T> + 'static, O: StaticListOwner<T, A>>
-    UniqueListHead<T, A, O>
-{
-    pub const fn new() -> Self {
-        Self(AtomicIlistHead::<T, A>::new(), PhantomData)
-    }
-
-    #[inline]
-    pub fn lock() -> UniqueListHeadAccessGuard<T, A, O> {
-        let w = O::get().irqsave_lock();
-        UniqueListHeadAccessGuard::new(w)
-    }
-
-    #[inline]
-    pub fn detach(me: &mut Arc<T>) -> bool {
-        let _guard = O::get().irqsave_lock();
-        ArcList::<T, A>::detach(me)
-    }
-
-    #[inline]
-    pub fn insert(me: Arc<T>) -> bool {
-        let mut head = O::get().irqsave_lock();
-        ArcList::<T, A>::insert_after(&mut *head, me)
-    }
 }
 
 #[cfg(test)]
