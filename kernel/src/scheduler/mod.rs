@@ -177,15 +177,15 @@ pub(crate) extern "C" fn save_context_finish_hook(
     let next_saved_sp = spin_until_ready_to_run(&next);
     let ok = next.transfer_state(thread::READY, thread::RUNNING);
     debug_assert!(ok);
-    // FIXME: Statistics of cycles should be optional.
-    let cycles = time::get_sys_cycles();
-    next.lock().set_start_cycles(cycles);
-    // FIXME: Signal feature should be optional.
-    {
-        if next.lock().has_pending_signals() {
-            prepare_signal_handling(&next);
-        }
-    }
+    //    // FIXME: Statistics of cycles should be optional.
+    //    let cycles = time::get_sys_cycles();
+    //    next.lock().set_start_cycles(cycles);
+    //    // FIXME: Signal feature should be optional.
+    //    {
+    //        if next.lock().has_pending_signals() {
+    //            prepare_signal_handling(&next);
+    //        }
+    //    }
     let next_id = Thread::id(&next);
     let next_saved_sp = next.saved_sp();
     let next_priority = next.priority();
@@ -201,7 +201,7 @@ pub(crate) extern "C" fn save_context_finish_hook(
         next_priority,
     );
     // FIXME: Statistics of cycles should be optional.
-    old.lock().increment_cycles(cycles);
+    // old.lock().increment_cycles(cycles);
     if old.state() == thread::RETIRED {
         let cleanup = old.lock().take_cleanup();
         if let Some(entry) = cleanup {
@@ -231,9 +231,9 @@ fn switch_current_thread(next: ThreadNode, old_sp: usize) -> usize {
     debug_assert!(ok);
     let next_id = Thread::id(&next);
     let next_priority = next.priority();
-    // FIXME: Statistics of cycles should be optional.
-    let cycles = time::get_sys_cycles();
-    next.lock().set_start_cycles(cycles);
+    //    // FIXME: Statistics of cycles should be optional.
+    //    let cycles = time::get_sys_cycles();
+    //    next.lock().set_start_cycles(cycles);
     let old = set_current_thread(next);
     #[cfg(debugging_scheduler)]
     crate::trace!(
@@ -246,7 +246,7 @@ fn switch_current_thread(next: ThreadNode, old_sp: usize) -> usize {
         next_priority,
     );
     // FIXME: Statistics of cycles should be optional.
-    old.lock().increment_cycles(cycles);
+    //old.lock().increment_cycles(cycles);
     let ok = if Thread::id(&old) == Thread::id(idle::current_idle_thread_ref()) {
         old.transfer_state(thread::RUNNING, thread::READY)
     } else {
