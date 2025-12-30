@@ -15,7 +15,7 @@
 // SysTick originally refers to the system timer of the Cortex-M
 // platform. We extend its definition to the timer of every platform
 // the BlueKernel supports. We use the term `cycles` to refer to the
-// internal counter of the timer.  We use the term `hz` to descripe
+// internal counter of the timer. We use the term `hz` to descripe
 // how many cycles within a second. Tick is defined as a short period
 // of time, which is atomic in the system, just like the Planck time
 // in physical world. We use `TICKS_PER_SECOND` to measure it. A
@@ -54,7 +54,7 @@ pub(crate) fn current_system_ticks() -> u64 {
 
 pub(crate) fn system_ticks_to_duration(ticks: u64) -> Duration {
     let val = 1_000_000 * now / TICKS_PER_SECOND;
-    Duration::from_micros(val);
+    Duration::from_micros(val)
 }
 
 pub(crate) fn ticks_to_cycles(ticks: u64) -> u64 {
