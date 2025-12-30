@@ -12,103 +12,78 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod systick;
-pub mod timer;
+// SysTick originally refers to the system timer of the Cortex-M
+// platform. We extend its definition to the timer of every platform
+// the BlueKernel supports. We use the term `cycles` to refer to the
+// internal counter of the timer.  We use the term `hz` to descripe
+// how many cycles within a second. Tick is defined as a short period
+// of time, which is atomic in the system, just like the Planck time
+// in physical world. We use `TICKS_PER_SECOND` to measure it. A
+// derived value, cycles_per_tick = hz / TICKS_PER_SECOND.
 
-use crate::{arch, boards, scheduler, support::DisableInterruptGuard, thread::Thread};
-use systick::SYSTICK;
+use crate::{arch, support::DisableInterruptGuard, sync::SpinLock};
+use core::time::Duration;
 
-pub const TICKS_PER_SECOND: usize = blueos_kconfig::CONFIG_TICKS_PER_SECOND as usize;
-pub const NO_WAITING: usize = 0;
-pub const WAITING_FOREVER: usize = usize::MAX;
+// Currently in SMP system, all cores should be referencing the
+// counter of the CPU#0.
+static mut TICKS: u64 = 0;
 
-pub fn systick_init(sys_clock: u32) -> bool {
-    debug_assert!(sys_clock > 0);
-    SYSTICK.init(sys_clock, TICKS_PER_SECOND as u32)
+pub trait SysTick {
+    // Reading the current counter of the timer requires some time(Time
+    // Drifting), we can only estimate it.
+    fn estimate_current_cycles() -> u64;
+    // Deliever a timer interrupt at the specified counter.
+    // To support it, mps2 should use SP804 Dual-Timer, mps3 should
+    // use Generic Timer.
+    fn expire_at(moment: u64);
+    const fn hz() -> u64;
 }
 
-pub fn get_sys_cycles() -> u64 {
-    SYSTICK.get_cycles()
-}
-
-pub fn cycles_to_millis(cycles: u64) -> u64 {
-    (cycles as f32 * 1_000_000f32 / ((SYSTICK.get_step() * TICKS_PER_SECOND) as f32)) as u64
-}
-
-pub fn reset_systick() {
-    SYSTICK.reset_counter();
-}
-
-pub extern "C" fn handle_tick_increment() {
+pub(crate) extern "C" fn increment_system_ticks() {
+    if arch::current_cpu_id() != 0 {
+        return;
+    }
     let _guard = DisableInterruptGuard::new();
-    let mut need_schedule = false;
-    // FIXME: aarch64 and riscv64 need to be supported
-    if arch::current_cpu_id() == 0 {
-        let ticks = SYSTICK.increment_ticks();
-        need_schedule = timer::check_hard_timer(ticks);
-    }
-    need_schedule = need_schedule || scheduler::handle_tick_increment(1);
-    SYSTICK.reset_counter();
-    if need_schedule {
-        scheduler::yield_me_now_or_later();
+    unsafe { TICKS += 1 };
+}
+
+pub(crate) fn current_system_ticks() -> u64 {
+    let _guard = DisableInterruptGuard::new();
+    unsafe { TICKS }
+}
+
+pub(crate) fn system_ticks_to_duration(ticks: u64) -> Duration {
+    let val = 1_000_000 * now / TICKS_PER_SECOND;
+    Duration::from_micros(val);
+}
+
+pub(crate) fn ticks_to_cycles(ticks: u64) -> u64 {
+    // TODO: Warn if hz() % TICKS_PER_SECOND != 0.
+    const K: u64 = SysTickImpl::hz() / TICKS_PER_SECOND;
+    K * ticks
+}
+
+pub(crate) fn uptime() -> Duration {
+    let now = current_system_ticks();
+    system_ticks_to_duration(now)
+}
+
+pub struct ScopeTimer<'a> {
+    start: u64,
+    diff: &'a mut u64,
+}
+
+impl ScopeTimer<'_> {
+    pub fn new(diff: &mut u64) -> Self {
+        ScopeTimer {
+            start: current_system_ticks(),
+            diff,
+        }
     }
 }
 
-pub fn tick_from_millisecond(ms: usize) -> usize {
-    #[cfg(has_fpu)]
-    {
-        let ticks = TICKS_PER_SECOND * (ms / 1000);
-        ticks + (TICKS_PER_SECOND * (ms % 1000) + 999) / 1000
-    }
-    // use 1024 as 1000 to aviod use math library
-    #[cfg(not(has_fpu))]
-    {
-        let ticks = TICKS_PER_SECOND.wrapping_mul(ms >> 10);
-        let remainder = ms & 0x3FF;
-        ticks.wrapping_add((TICKS_PER_SECOND.wrapping_mul(remainder) + 1023) >> 10)
-    }
-}
-
-pub fn tick_to_millisecond(ticks: usize) -> usize {
-    ticks * (1000 / TICKS_PER_SECOND)
-}
-
-/// TickTime represents time in ticks.
-///
-/// Each tick corresponds to a system tick, which is defined by the system's tick rate (TICKS_PER_SECOND).
-/// So the resolution of TickTime is 1 / TICKS_PER_SECOND seconds.
-/// Use u64 to store ticks to avoid overflow in long running systems.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(transparent)]
-pub struct TickTime(u64);
-
-impl TickTime {
-    #[inline(always)]
-    pub fn now() -> Self {
-        TickTime(SYSTICK.get_tick() as u64)
-    }
-
-    #[inline(always)]
-    pub fn as_ticks(&self) -> usize {
-        // FIXME: there are many places use usize for ticks
-        // so we need to convert u64 to usize here temporarily
-        // This may cause overflow in long running systems
-        // Should be careful in future.
-        self.0 as usize
-    }
-
-    #[inline(always)]
-    pub fn as_millis(&self) -> usize {
-        crate::static_assert!(TICKS_PER_SECOND > 0);
-        // FIXME: there are many places use usize for millis
-        // so we need to convert u64 to usize here temporarily
-        ((self.0 * 1000) / (TICKS_PER_SECOND as u64)) as usize
-    }
-
-    #[inline(always)]
-    pub fn from_ticks(ticks: usize) -> Self {
-        // FIXME: there are many places use usize for millis
-        // so we need to convert u64 to usize here temporarily
-        TickTime(ticks as u64)
+impl Drop for ScopeTimer<'_> {
+    fn drop(&mut self) {
+        *self.diff = current_system_ticks() - self.start;
     }
 }
