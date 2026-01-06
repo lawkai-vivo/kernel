@@ -17,9 +17,11 @@ mod handler;
 
 use crate::{
     arch::{self, irq::IrqNumber},
+    boards::systick,
     boot,
     boot::INIT_BSS_DONE,
     time,
+    time::Clock,
 };
 use blueos_hal::clock_control::ClockControl;
 use core::ptr::addr_of;
@@ -75,6 +77,9 @@ unsafe fn copy_data() {
     INIT_BSS_DONE = true;
 }
 
+const TICKS_PS: usize = blueos_kconfig::CONFIG_TICKS_PER_SECOND as usize;
+pub type ClockImpl = systick::SysTickClock<TICKS_PS, 150_000_000usize>;
+
 pub(crate) fn init() {
     unsafe {
         const SCB_CPACR_PTR: *mut u32 = 0xE000_ED88 as *mut u32;
@@ -92,7 +97,7 @@ pub(crate) fn init() {
     unsafe { boot::init_heap() };
     arch::irq::init();
     arch::irq::enable_irq_with_priority(IrqNumber::new(33), arch::irq::Priority::Normal);
-    time::systick_init(150_000_000);
+    ClockImpl::init();
 }
 
 crate::define_peripheral! {
@@ -146,4 +151,9 @@ pub unsafe extern "C" fn uart0_handler() {
         handler();
     }
     uart.clear_interrupt(intr);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn handle_systick() {
+    ClockImpl::on_interrupt();
 }

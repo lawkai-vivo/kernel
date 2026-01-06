@@ -30,6 +30,7 @@ use blueos::{
     },
     thread::{self, Entry, GlobalQueueVisitor, Thread},
     time,
+    time::Tick,
     types::{Arc, ThreadPriority, Uint},
 };
 use cmsis_os2::{
@@ -466,14 +467,13 @@ pub extern "C" fn osThreadSuspend(thread_id: osThreadId_t) -> osStatus_t {
     let t = unsafe { &mut *(thread_id as *const _ as *mut Os2Thread) };
     // If this thread is suspending its self.
     if ptr::eq(t, alien_ptr.as_ptr() as *mut Os2Thread) {
-        scheduler::suspend_me_for(usize::MAX);
+        scheduler::suspend_me_for::<()>(Tick::MAX, None);
         return osStatus_t_osOK;
     }
     // FIXME: We should use SIGUSR1 here, however it's not defined yet.
-    if !t
-        .lock()
-        .kill_with_once_handler(libc::SIGHUP, move || scheduler::suspend_me_for(usize::MAX))
-    {
+    if !t.lock().kill_with_once_handler(libc::SIGHUP, move || {
+        scheduler::suspend_me_for::<()>(Tick::MAX, None);
+    }) {
         return osStatus_t_osErrorResource;
     }
     // Try our best make the thread run again.
@@ -509,12 +509,7 @@ pub extern "C" fn osThreadResume(thread_id: osThreadId_t) -> osStatus_t {
             return osStatus_t_osErrorResource;
         }
     }
-
-    if let Some(timer) = &th.timer {
-        timer.stop();
-    }
     drop(th);
-
     scheduler::queue_ready_thread(thread::SUSPENDED, thread.clone());
     osStatus_t_osOK
 }
@@ -665,9 +660,9 @@ pub extern "C" fn osThreadFlagsWait(flags: u32, options: u32, timeout: u32) -> u
         flags,
         mode,
         if timeout == osWaitForever {
-            time::WAITING_FOREVER as usize
+            time::Tick::MAX
         } else {
-            timeout as usize
+            Tick(timeout as usize)
         },
     ) {
         Ok(prev_flags) => prev_flags,
@@ -694,13 +689,13 @@ mod tests {
     // helper function
     extern "C" fn Th_SelfTerminate(arg: *mut core::ffi::c_void) {
         let _ = arg;
-        scheduler::suspend_me_for(10);
+        scheduler::suspend_me_for::<()>(Tick(10), None);
         osThreadTerminate(osThreadGetId());
     }
     // helper function
     extern "C" fn Th_osThreadGetCount_1(arg: *mut core::ffi::c_void) {
         let _ = arg;
-        scheduler::suspend_me_for(time::WAITING_FOREVER);
+        scheduler::suspend_me_for::<()>(Tick::MAX, None);
     }
     // helper function
     extern "C" fn Th_osThreadEnumerate_1(arg: *mut core::ffi::c_void) {
@@ -947,7 +942,7 @@ mod tests {
                 "Thread ID should be greater than 0"
             );
         }
-        scheduler::suspend_me_for(128);
+        scheduler::suspend_me_for::<()>(Tick(128), None);
         for i in 0..N {
             osThreadJoin(thread_ids[i]);
             assert_eq!(

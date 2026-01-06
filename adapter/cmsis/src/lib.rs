@@ -19,6 +19,8 @@
 #![cfg_attr(test, reexport_test_harness_main = "adapter_test_main")]
 #![cfg_attr(test, no_main)]
 #![feature(pointer_is_aligned_to)]
+//#[cfg(test)]
+//blueos_test_macro::test_only!();
 
 extern crate alloc;
 pub mod bridge_utils;

@@ -12,103 +12,128 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod systick;
 pub mod timer;
+pub mod timer_manager;
 
-use crate::{arch, boards, scheduler, support::DisableInterruptGuard, thread::Thread};
-use systick::SYSTICK;
+use crate::{arch, scheduler, support::DisableInterruptGuard};
+use blueos_kconfig::CONFIG_TICKS_PER_SECOND as TICKS_PER_SECOND;
+use core::time::Duration;
+// ClockImpl should be provided by each board.
+pub use crate::boards::ClockImpl;
+use crate::devices::clock::Clock;
 
-pub const TICKS_PER_SECOND: usize = blueos_kconfig::CONFIG_TICKS_PER_SECOND as usize;
-pub const NO_WAITING: usize = 0;
-pub const WAITING_FOREVER: usize = usize::MAX;
+#[derive(Default, Debug, PartialEq, Clone, Copy, Eq, PartialOrd, Ord)]
+pub struct Tick(pub usize);
 
-pub fn systick_init(sys_clock: u32) -> bool {
-    debug_assert!(sys_clock > 0);
-    SYSTICK.init(sys_clock, TICKS_PER_SECOND as u32)
-}
+impl Tick {
+    pub const MAX: Self = Self(usize::MAX);
 
-pub fn get_sys_cycles() -> u64 {
-    SYSTICK.get_cycles()
-}
-
-pub fn cycles_to_millis(cycles: u64) -> u64 {
-    (cycles as f32 * 1_000_000f32 / ((SYSTICK.get_step() * TICKS_PER_SECOND) as f32)) as u64
-}
-
-pub fn reset_systick() {
-    SYSTICK.reset_counter();
-}
-
-pub extern "C" fn handle_tick_increment() {
-    let _guard = DisableInterruptGuard::new();
-    let mut need_schedule = false;
-    // FIXME: aarch64 and riscv64 need to be supported
-    if arch::current_cpu_id() == 0 {
-        let ticks = SYSTICK.increment_ticks();
-        need_schedule = timer::check_hard_timer(ticks);
+    pub fn from_millis(millis: u64) -> Self {
+        Self((millis * (TICKS_PER_SECOND as u64) / 1000) as usize)
     }
-    need_schedule = need_schedule || scheduler::handle_tick_increment(1);
-    SYSTICK.reset_counter();
-    if need_schedule {
-        scheduler::yield_me_now_or_later();
+
+    pub fn from_micros(micros: u64) -> Self {
+        Self((micros * (TICKS_PER_SECOND as u64) / 1_000_000) as usize)
     }
-}
 
-pub fn tick_from_millisecond(ms: usize) -> usize {
-    #[cfg(has_fpu)]
-    {
-        let ticks = TICKS_PER_SECOND * (ms / 1000);
-        ticks + (TICKS_PER_SECOND * (ms % 1000) + 999) / 1000
+    pub fn from_nanos(nanos: u64) -> Self {
+        Self((nanos * (TICKS_PER_SECOND as u64) / 1_000_000_000) as usize)
     }
-    // use 1024 as 1000 to aviod use math library
-    #[cfg(not(has_fpu))]
-    {
-        let ticks = TICKS_PER_SECOND.wrapping_mul(ms >> 10);
-        let remainder = ms & 0x3FF;
-        ticks.wrapping_add((TICKS_PER_SECOND.wrapping_mul(remainder) + 1023) >> 10)
+
+    pub fn after(n: Self) -> Self {
+        if n == Self::MAX {
+            return Self::MAX;
+        }
+        let now = Self::now();
+        Self(Self::now().0 + n.0)
     }
-}
 
-pub fn tick_to_millisecond(ticks: usize) -> usize {
-    ticks * (1000 / TICKS_PER_SECOND)
-}
+    pub fn add(&self, n: Self) -> Self {
+        if *self == Self::MAX {
+            return Self::MAX;
+        }
+        Self(self.0 + n.0)
+    }
 
-/// TickTime represents time in ticks.
-///
-/// Each tick corresponds to a system tick, which is defined by the system's tick rate (TICKS_PER_SECOND).
-/// So the resolution of TickTime is 1 / TICKS_PER_SECOND seconds.
-/// Use u64 to store ticks to avoid overflow in long running systems.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(transparent)]
-pub struct TickTime(u64);
+    pub fn since(&self, base: Self) -> Self {
+        if self.0 <= base.0 {
+            return Self(0);
+        }
+        Tick(self.0 - base.0)
+    }
 
-impl TickTime {
-    #[inline(always)]
     pub fn now() -> Self {
-        TickTime(SYSTICK.get_tick() as u64)
+        debug_assert_eq!(ClockImpl::hz() % TICKS_PER_SECOND as u64, 0);
+        Self(
+            (ClockImpl::estimate_current_cycles() * TICKS_PER_SECOND as u64 / ClockImpl::hz())
+                as usize,
+        )
     }
 
-    #[inline(always)]
-    pub fn as_ticks(&self) -> usize {
-        // FIXME: there are many places use usize for ticks
-        // so we need to convert u64 to usize here temporarily
-        // This may cause overflow in long running systems
-        // Should be careful in future.
-        self.0 as usize
+    pub fn interrupt_after(diff: Self) {
+        let nth = Self::after(diff);
+        Self::interrupt_at(nth);
     }
 
-    #[inline(always)]
-    pub fn as_millis(&self) -> usize {
-        crate::static_assert!(TICKS_PER_SECOND > 0);
-        // FIXME: there are many places use usize for millis
-        // so we need to convert u64 to usize here temporarily
-        ((self.0 * 1000) / (TICKS_PER_SECOND as u64)) as usize
+    pub fn interrupt_at(n: Tick) {
+        //semihosting::println!("CPU#{}: Int at {:?}", arch::current_cpu_id(), n);
+        let _guard = DisableInterruptGuard::new();
+        if n == Self::MAX {
+            ClockImpl::stop();
+            return;
+        }
+        ClockImpl::interrupt_at(ClockImpl::hz() * n.0 as u64 / TICKS_PER_SECOND as u64);
     }
+}
 
-    #[inline(always)]
-    pub fn from_ticks(ticks: usize) -> Self {
-        // FIXME: there are many places use usize for millis
-        // so we need to convert u64 to usize here temporarily
-        TickTime(ticks as u64)
+pub(crate) extern "C" fn handle_clock_interrupt() {
+    let _guard = DisableInterruptGuard::new();
+    let now = Tick::now();
+    //    semihosting::println!(
+    //        "Handle timer IRQ at {:?} on CPU#{}",
+    //        now,
+    //        arch::current_cpu_id()
+    //    );
+    if let Some(next_deadline) = timer::expire_timers(now) {
+        Tick::interrupt_at(next_deadline);
+    } else {
+        ClockImpl::stop();
+    };
+    if !scheduler::need_reschedule_at(now) {
+        return;
+    }
+    scheduler::yield_me_now_or_later();
+}
+
+pub fn current_clock_cycles() -> u64 {
+    ClockImpl::estimate_current_cycles()
+}
+
+pub fn now() -> Duration {
+    from_clock_cycles(ClockImpl::estimate_current_cycles())
+}
+
+pub fn from_clock_cycles(cycles: u64) -> Duration {
+    let now = 1_000_000_000 * cycles / ClockImpl::hz();
+    Duration::from_nanos(now)
+}
+
+pub struct ScopeTimer<'a> {
+    start: u64,
+    diff: &'a mut u64,
+}
+
+impl<'a> ScopeTimer<'a> {
+    pub fn new(diff: &'a mut u64) -> Self {
+        Self {
+            start: ClockImpl::estimate_current_cycles(),
+            diff,
+        }
+    }
+}
+
+impl Drop for ScopeTimer<'_> {
+    fn drop(&mut self) {
+        *self.diff = ClockImpl::estimate_current_cycles() - self.start;
     }
 }
