@@ -159,14 +159,15 @@ pub(crate) extern "C" fn save_context_finish_hook(
     // are on current stack.
     // FIXME: We must be careful about performance issue of Option::take, since besides
     // loading content from the Option, storing None into the Option also happens.
-    let closure = hook.closure.take();
-    let next = unsafe { Arc::from_raw(hook.next_thread) };
-    let next_id = Thread::id(&next);
-    let next_priority = next.priority();
+    // FIXME: Statistics of cycles should be optional.
     #[cfg(thread_stats)]
     let cycles = time::get_sys_cycles();
+    let closure = hook.closure.take();
+    let next = unsafe { Arc::from_raw(hook.next_thread) };
     #[cfg(thread_stats)]
     next.lock().set_start_cycles(cycles);
+    let next_id = Thread::id(&next);
+    let next_priority = next.priority();
     let next_saved_sp = spin_until_ready_to_run(&next);
     // Handling signals relies on previously saved sp, so it must be put between
     // spin_until_ready_to_run and clear_saved_sp.
