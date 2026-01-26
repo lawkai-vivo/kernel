@@ -47,7 +47,7 @@ pub(crate) fn init() {
             irq::Priority::Normal,
         );
     });
-    STAGING.run(7, false, || {
+    STAGING.run(6, false, || {
         irq::enable_irq_with_priority(
             config::GENERIC_TIMER_IRQNUM,
             arch::current_cpu_id(),
