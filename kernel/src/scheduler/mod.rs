@@ -198,7 +198,6 @@ fn switch_current_thread(next: ThreadNode, old_sp: usize) -> usize {
         let deadline = now.add(time_slices);
         set_current_timer(deadline);
     }
-    // FIXME: Statistics of cycles should be optional.
     #[cfg(thread_stats)]
     let cycles = time::current_clock_cycles();
     #[cfg(thread_stats)]
