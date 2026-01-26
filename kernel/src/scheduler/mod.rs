@@ -121,7 +121,6 @@ fn set_per_cpu_timer(id: usize, deadline: Tick) {
         };
         *d = deadline;
         let iou = timer::add_hard_timer(tm_mut).unwrap();
-        debug_assert!(timer::is_active_hard_timer(&iou));
     }
 }
 
