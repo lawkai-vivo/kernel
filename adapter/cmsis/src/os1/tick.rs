@@ -35,7 +35,6 @@ mod tests {
 
     #[test]
     fn test_osKernelSysTick() {
-        scheduler::suspend_me_for(1);
         // If the system runs fast enough, it can be zero.
         scheduler::suspend_me_for::<()>(Tick(1), None);
         let tick = osKernelSysTick();
