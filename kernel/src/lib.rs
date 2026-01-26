@@ -450,8 +450,8 @@ mod tests {
 
     // FIXME: We have performance issue on SMP. See
     // https://github.com/vivoblueos/kernel/issues/111 for details.
-    #[cfg_attr(not(target_arch = "riscv64"), test)]
-    #[cfg_attr(target_arch = "riscv64", blueos_test_macro::ignore)]
+    #[cfg_attr(not(target_board = "qemu_riscv64"), test)]
+    #[cfg_attr(target_board = "qemu_riscv64", blueos_test_macro::ignore)]
     fn stress_mqueue() {
         MQUEUE.init();
         reset_and_queue_test_threads(test_mqueue, Some(test_mqueue_cleanup));
