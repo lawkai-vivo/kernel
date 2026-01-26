@@ -14,9 +14,9 @@
 
 use crate::{devices::clock::Clock, drivers::timers::GenericTimer};
 
-pub struct QemuGtClk;
+pub struct GenericClock;
 
-impl Clock for QemuGtClk {
+impl Clock for GenericClock {
     fn hz() -> u64 {
         GenericTimer::read_cntfrq()
     }
@@ -35,3 +35,5 @@ impl Clock for QemuGtClk {
         GenericTimer::write_cntp_ctl(0);
     }
 }
+
+pub type QemuGtClk = GenericClock;
