@@ -24,7 +24,7 @@ use crate::{
     arch,
     arch::riscv::{local_irq_enabled, trap_entry, Context},
     devices::clock::Clock,
-    drivers::ic::plic::Plic,
+    drivers::{ic::plic::Plic, msip::Msip},
     scheduler,
     support::SmpStagedInit,
     time,
@@ -85,16 +85,14 @@ crate::define_peripheral! {
 
 crate::define_pin_states!(None);
 
-const MSIP_BASE: usize = 0x0200_0000;
+type MyMsip = Msip<0x0200_0000>;
 
+#[inline(always)]
 pub(crate) fn send_ipi(hart: usize) {
-    let addr = MSIP_BASE + 4 * hart;
-    let ptr = addr as *mut u32;
-    unsafe { ptr.write(1) };
+    MyMsip::send_ipi(hart)
 }
 
+#[inline(always)]
 pub(crate) fn clear_ipi(hart: usize) {
-    let addr = MSIP_BASE + 4 * hart;
-    let ptr = addr as *mut u32;
-    unsafe { ptr.write(0) };
+    MyMsip::clear_ipi(hart)
 }
