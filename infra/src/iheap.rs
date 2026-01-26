@@ -24,12 +24,11 @@ use core::{marker::PhantomData, ptr::NonNull};
 #[derive(Default)]
 #[repr(transparent)]
 pub struct IouMinHeapNodeMut<'a, T, A: const Adapter<T>> {
-    // We don't want to have to &mut T simultaneously during iterating over the list.
     node: Option<NonNull<MinHeapNode<T, A>>>,
     _lt: PhantomData<&'a mut T>,
 }
 
-impl<'a, T, A: const Adapter<T>> IouMinHeapNodeMut<'a, T, A> {
+impl<T, A: const Adapter<T>> IouMinHeapNodeMut<'_, T, A> {
     pub const fn new() -> Self {
         Self {
             node: None,
@@ -488,10 +487,10 @@ where
         self.top_down_adjust(last_val, last)
     }
 
-    pub fn remove<'a, 'b>(
+    pub fn remove<'a>(
         &mut self,
-        mut iou: IouMinHeapNodeMut<'a, T, A>,
-    ) -> Option<IouMinHeapNodeMut<'b, T, A>> {
+        mut iou: IouMinHeapNodeMut<'_, T, A>,
+    ) -> Option<IouMinHeapNodeMut<'a, T, A>> {
         let Some(mut node) = iou.node else {
             panic!("Nil node")
         };
@@ -511,7 +510,7 @@ where
         })
     }
 
-    pub fn is_active<'a>(&self, iou: &IouMinHeapNodeMut<'a, T, A>) -> bool {
+    pub fn is_active(&self, iou: &IouMinHeapNodeMut<'_, T, A>) -> bool {
         let Some(node) = iou.node else {
             return false;
         };
