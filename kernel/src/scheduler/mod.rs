@@ -189,18 +189,18 @@ pub(crate) extern "C" fn save_context_finish_hook(
 }
 
 fn switch_current_thread(next: ThreadNode, old_sp: usize) -> usize {
-    let now = Tick::now();
-    #[cfg(robin_scheduler)]
-    {
-        next.set_this_round_start_at(now);
-        let time_slices = next.refresh_time_slices();
-        let deadline = now.add(time_slices);
-        set_current_timer(deadline);
-    }
-    #[cfg(thread_stats)]
-    let cycles = time::current_clock_cycles();
-    #[cfg(thread_stats)]
-    next.lock().set_start_cycles(cycles);
+    //    let now = Tick::now();
+    //    #[cfg(robin_scheduler)]
+    //    {
+    //        next.set_this_round_start_at(now);
+    //        let time_slices = next.refresh_time_slices();
+    //        let deadline = now.add(time_slices);
+    //        set_current_timer(deadline);
+    //    }
+    //    #[cfg(thread_stats)]
+    //    let cycles = time::current_clock_cycles();
+    //    #[cfg(thread_stats)]
+    //    next.lock().set_start_cycles(cycles);
     let next_id = Thread::id(&next);
     let next_priority = next.priority();
     let next_saved_sp = spin_until_ready_to_run(&next);
@@ -216,8 +216,8 @@ fn switch_current_thread(next: ThreadNode, old_sp: usize) -> usize {
     let ok = next.transfer_state(thread::READY, thread::RUNNING);
     debug_assert!(ok);
     let mut old = set_current_thread(next);
-    #[cfg(thread_stats)]
-    old.lock().increment_cycles(cycles);
+    //    #[cfg(thread_stats)]
+    //    old.lock().increment_cycles(cycles);
     #[cfg(debugging_scheduler)]
     crate::trace!(
         "Switching from 0x{:x}: {{ SP: 0x{:x} PRI: {} }} to 0x{:x}: {{ SP: 0x{:x} PRI: {} }}",
@@ -228,14 +228,14 @@ fn switch_current_thread(next: ThreadNode, old_sp: usize) -> usize {
         next_saved_sp,
         next_priority,
     );
-    #[cfg(robin_scheduler)]
-    {
-        let start = old.this_round_start_at();
-        let elapsed = now.since(start);
-        old.elapse_time_slices(elapsed);
-    }
-    #[cfg(thread_stats)]
-    old.lock().increment_cycles(cycles);
+    //    #[cfg(robin_scheduler)]
+    //    {
+    //        let start = old.this_round_start_at();
+    //        let elapsed = now.since(start);
+    //        old.elapse_time_slices(elapsed);
+    //    }
+    //    #[cfg(thread_stats)]
+    //    old.lock().increment_cycles(cycles);
     if old.state() == thread::RETIRED {
         let cleanup = old.lock().take_cleanup();
         if let Some(entry) = cleanup {
