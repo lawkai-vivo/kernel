@@ -594,4 +594,22 @@ mod tests {
         drop(hwiou);
         drop(swiou);
     }
+
+    #[test]
+    fn test_timer_accuracy() {
+        use crate::{boards::ClockImpl, devices::clock::Clock};
+        let start = ClockImpl::estimate_current_cycles();
+        scheduler::suspend_me_for::<()>(
+            Tick(blueos_kconfig::CONFIG_TICKS_PER_SECOND as usize),
+            None,
+        );
+        let end = crate::boards::ClockImpl::estimate_current_cycles();
+        let diff = end - start;
+        // Accept interval [0.99, 1.01].
+        let hz = ClockImpl::hz();
+        let l = 99;
+        let r = 1_01;
+        assert!(diff >= l * hz / 1_00);
+        assert!(diff <= r * hz / 1_00);
+    }
 }
