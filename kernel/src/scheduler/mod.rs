@@ -35,13 +35,13 @@ use core::{
     sync::atomic::{compiler_fence, AtomicBool, AtomicU8, Ordering},
 };
 pub use global_scheduler::*;
+pub use idle::{
+    current_idle_thread, current_idle_thread_ref, get_idle_thread, get_idle_thread_ref,
+};
 pub(crate) use wait_queue::*;
 
 mod global_scheduler;
 mod idle;
-pub use idle::{
-    current_idle_thread, current_idle_thread_ref, get_idle_thread, get_idle_thread_ref,
-};
 pub(crate) mod wait_queue;
 
 static READY_CORES: AtomicU8 = AtomicU8::new(0);
@@ -94,6 +94,8 @@ pub(crate) static mut RUNNING_THREADS: [MaybeUninit<ThreadNode>; NUM_CORES] =
     [const { MaybeUninit::zeroed() }; NUM_CORES];
 static mut PER_CPU_TIMER: [MaybeUninit<Timer>; NUM_CORES] =
     [const { MaybeUninit::zeroed() }; NUM_CORES];
+#[cfg(target_arch = "arm")]
+static mut PEND_NEXT_THREADS: [Option<ThreadNode>; NUM_CORES] = [const { None }; NUM_CORES];
 
 pub(crate) fn init() {
     idle::init_idle_threads();
@@ -278,35 +280,19 @@ pub(crate) extern "C" fn relinquish_me_and_return_next_sp(old_sp: usize) -> usiz
 }
 
 pub(crate) extern "C" fn claim_pendsv(old_sp: usize) -> usize {
+    let pend_next = unsafe { &mut PEND_NEXT_THREADS[arch::current_cpu_id()] };
+    let Some(next) = pend_next.take() else {
+        return old_sp;
+    };
     let old = current_thread_ref();
     let state = old.state();
     let current_idle_ref = current_idle_thread_ref();
-    let next = match state {
-        thread::RUNNING => {
-            let Some(next) = next_preferred_thread(old.priority()) else {
-                return old_sp;
-            };
-            next
-        }
-        thread::IDLE => {
-            let Some(next) = next_ready_thread() else {
-                let ok = old.transfer_state(thread::IDLE, thread::RUNNING);
-                debug_assert_eq!(ok, Ok(()));
-                return old_sp;
-            };
-            next
-        }
-        _ => {
-            debug_assert_ne!(Thread::id(old), Thread::id(current_idle_ref));
-            next_ready_thread().map_or_else(|| unsafe { Arc::clone_from(current_idle_ref) }, |v| v)
-        }
-    };
-    if state == thread::IDLE || state == thread::RUNNING {
-        if Thread::id(old) == Thread::id(current_idle_ref) {
-            let ok = old.transfer_state(state, thread::READY);
+    if state == thread::RUNNING {
+        if Thread::id(old) == Thread::id(idle::current_idle_thread_ref()) {
+            let ok = old.transfer_state(thread::RUNNING, thread::READY);
             debug_assert_eq!(ok, Ok(()));
         } else {
-            let ok = queue_ready_thread(state, unsafe { Arc::clone_from(old) });
+            let ok = queue_ready_thread(thread::RUNNING, unsafe { Arc::clone_from(old) });
             debug_assert_eq!(ok, Ok(()));
         };
     }
@@ -331,15 +317,24 @@ pub fn retire_me() -> ! {
     unreachable!("Retired thread should not reach here")
 }
 
+#[cfg(target_arch = "arm")]
 fn inner_yield(next: ThreadNode) {
-    let old = current_thread();
+    let pend_next = unsafe { &mut PEND_NEXT_THREADS[arch::current_cpu_id()] };
+    let n = pend_next.replace(next);
+    debug_assert!(n.is_none());
+    arch::post_pendsv();
+}
+
+#[cfg(not(target_arch = "arm"))]
+fn inner_yield(next: ThreadNode) {
+    let old = current_thread_ref();
     let mut hook_holder = ContextSwitchHookHolder::new(next);
     old.disable_preempt();
     if Thread::id(&old) == Thread::id(idle::current_idle_thread_ref()) {
         let ok = old.transfer_state(thread::RUNNING, thread::READY);
         debug_assert_eq!(ok, Ok(()));
     } else {
-        let ok = queue_ready_thread(thread::RUNNING, old.clone());
+        let ok = queue_ready_thread(thread::RUNNING, unsafe { Arc::clone_from(old) });
         debug_assert_eq!(ok, Ok(()));
     };
     arch::switch_context_with_hook(&mut hook_holder as *mut _);
@@ -352,46 +347,21 @@ pub fn yield_me() {
     // The scheduler assumes every thread should be resumed with local
     // irq enabled.
     debug_assert!(arch::local_irq_enabled());
-    #[cfg(target_arch = "arm")]
-    {
-        let old = current_thread_ref();
-        debug_assert_eq!(old.state(), thread::RUNNING);
-        old.disable_preempt();
-        let ok = old.transfer_state(thread::RUNNING, thread::IDLE);
-        debug_assert_eq!(ok, Ok(()));
-        arch::post_pendsv();
-        old.enable_preempt();
-    }
-    #[cfg(not(target_arch = "arm"))]
-    {
-        let Some(next) = next_ready_thread() else {
-            return;
-        };
-        debug_assert_eq!(next.state(), thread::READY);
-        inner_yield(next);
-    }
+    let Some(next) = next_ready_thread() else {
+        return;
+    };
+    debug_assert_eq!(next.state(), thread::READY);
+    inner_yield(next);
 }
 
 pub fn relinquish_me() {
     debug_assert!(arch::local_irq_enabled());
-    #[cfg(target_arch = "arm")]
-    {
-        let old = current_thread_ref();
-        debug_assert_eq!(old.state(), thread::RUNNING);
-        old.disable_preempt();
-        arch::post_pendsv();
-        old.enable_preempt();
-    }
-    #[cfg(not(target_arch = "arm"))]
-    {
-        debug_assert!(arch::local_irq_enabled());
-        let old = current_thread_ref();
-        let Some(next) = next_preferred_thread(old.priority()) else {
-            return;
-        };
-        debug_assert_eq!(next.state(), thread::READY);
-        inner_yield(next);
-    }
+    let old = current_thread_ref();
+    let Some(next) = next_preferred_thread(old.priority()) else {
+        return;
+    };
+    debug_assert_eq!(next.state(), thread::READY);
+    inner_yield(next);
 }
 
 pub fn suspend_me_for<T>(mut timeout: Tick, wq: Option<SpinLockGuard<'_, T>>) -> bool {
@@ -402,14 +372,17 @@ pub fn suspend_me_for<T>(mut timeout: Tick, wq: Option<SpinLockGuard<'_, T>>) ->
 }
 
 fn prepare_switch_hook() -> ContextSwitchHookHolder {
+    let next = next_ready_thread().map_or_else(current_idle_thread, |v| v);
+    debug_assert_eq!(next.state(), thread::READY);
     #[cfg(not(target_arch = "arm"))]
     {
-        let next = next_ready_thread().map_or_else(current_idle_thread, |v| v);
-        debug_assert_eq!(next.state(), thread::READY);
         ContextSwitchHookHolder::new(next)
     }
     #[cfg(target_arch = "arm")]
     {
+        let pend_next = unsafe { &mut PEND_NEXT_THREADS[arch::current_cpu_id()] };
+        let n = pend_next.replace(next);
+        debug_assert!(n.is_none());
         ContextSwitchHookHolder {
             next_thread: core::ptr::null(),
         }
