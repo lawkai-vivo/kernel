@@ -361,10 +361,11 @@ extern "C" fn syscall_handler(ctx: &mut Context) {
 unsafe extern "C" fn syscall_stub(ctx: *mut Context) -> ! {
     core::arch::naked_asm!(
         concat!(
+            // Stack must be double word aligned in thumb mode.
             "
-            push {{r0}}
+            push {{r0, r1}}
             bl {syscall_handler}
-            pop {{r0}}
+            pop {{r0, r1}}
             ldr r7, ={syscall_ret}
             svc 0
             ",
@@ -451,7 +452,7 @@ pub unsafe extern "C" fn handle_pendsv() {
             bx lr
             "
         ),
-        next_thread_sp = sym scheduler::relinquish_me_and_return_next_sp,
+        next_thread_sp = sym scheduler::claim_pendsv,
         basepri = const DISABLE_LOCAL_IRQ_BASEPRI,
     )
 }

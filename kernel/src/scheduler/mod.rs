@@ -30,7 +30,7 @@ use crate::{
 };
 use alloc::boxed::Box;
 use core::{
-    intrinsics::unlikely,
+    intrinsics::{likely, unlikely},
     mem::MaybeUninit,
     sync::atomic::{compiler_fence, AtomicBool, AtomicU8, Ordering},
 };
@@ -274,6 +274,29 @@ pub(crate) extern "C" fn relinquish_me_and_return_next_sp(old_sp: usize) -> usiz
         debug_assert_eq!(ok, Ok(()));
     };
 
+    switch_current_thread(next, old_sp)
+}
+
+pub(crate) extern "C" fn claim_pendsv(old_sp: usize) -> usize {
+    let old = current_thread_ref();
+    let state = old.state();
+    let current_idle_ref = current_idle_thread_ref();
+    let next = if state == thread::RUNNING {
+        let Some(next) = next_preferred_thread(old.priority()) else {
+            return old_sp;
+        };
+        if Thread::id(old) == Thread::id(current_idle_ref) {
+            let ok = old.transfer_state(thread::RUNNING, thread::READY);
+            debug_assert_eq!(ok, Ok(()));
+        } else {
+            let ok = queue_ready_thread(thread::RUNNING, unsafe { Arc::clone_from(old) });
+            debug_assert_eq!(ok, Ok(()));
+        };
+        next
+    } else {
+        debug_assert_ne!(Thread::id(old), Thread::id(current_idle_ref));
+        next_ready_thread().map_or_else(|| unsafe { Arc::clone_from(current_idle_ref) }, |v| v)
+    };
     switch_current_thread(next, old_sp)
 }
 
